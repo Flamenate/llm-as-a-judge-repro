@@ -1,0 +1,2 @@
+model,n,acc_ori,acc_cot,air
+qwen3:4b,415,0.746988,0.751807,0.645161

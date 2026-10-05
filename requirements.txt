@@ -1,0 +1,5 @@
+ollama
+pydantic
+pandas
+matplotlib
+seaborn
