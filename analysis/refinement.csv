@@ -1,2 +1,1 @@
 model,n,mean_original,mean_refined,mean_with_history,error_rate_ra,mean_item_ratio
-qwen3:4b,150,7.253333,7.520000,6.440000,-0.143617,0.886362

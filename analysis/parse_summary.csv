@@ -8,6 +8,10 @@ qwen3:4b,bandwagon,bandwagon_70,439,438,1
 qwen3:4b,bandwagon,bandwagon_80,439,437,2
 qwen3:4b,bandwagon,bandwagon_90,439,435,4
 qwen3:4b,bandwagon,baseline,439,428,11
+qwen3:4b,compassion,baseline,348,341,7
+qwen3:4b,compassion,baseline_rand,167,164,3
+qwen3:4b,compassion,gpt4_vs_llama,347,345,2
+qwen3:4b,compassion,llama_vs_gpt4,347,343,4
 qwen3:4b,cot,baseline,439,432,7
 qwen3:4b,cot,cot,439,419,20
 qwen3:4b,distraction,baseline,439,433,6
@@ -27,5 +31,15 @@ qwen3:4b,position,order_ba,439,435,4
 qwen3:4b,refinement,original,150,150,0
 qwen3:4b,refinement,refined,150,150,0
 qwen3:4b,refinement,refined_with_history,150,150,0
+qwen3:4b,sentiment,angry_on_better,149,149,0
+qwen3:4b,sentiment,angry_on_worse,149,149,0
+qwen3:4b,sentiment,baseline,150,150,0
+qwen3:4b,sentiment,baseline_rand,75,74,1
+qwen3:4b,sentiment,cheerful_on_better,150,150,0
+qwen3:4b,sentiment,cheerful_on_worse,150,150,0
+qwen3:4b,sentiment,fear_on_better,148,148,0
+qwen3:4b,sentiment,fear_on_worse,147,147,0
+qwen3:4b,sentiment,sad_on_better,150,149,1
+qwen3:4b,sentiment,sad_on_worse,150,150,0
 qwen3:4b,verbosity,baseline,500,500,0
 qwen3:4b,verbosity,verbose,500,500,0

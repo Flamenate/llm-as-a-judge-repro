@@ -6,8 +6,18 @@ Usage:
     python analyze.py --models qwen3:4b --biases fallacy position
 
 Reads results/<model>__<bias>.json files written by judge.py. Writes CSV
-tables and PNG charts under analysis/. Consistency Rate and self-enhancement
-are not computed.
+tables and PNG charts under analysis/. Self-enhancement is not computed.
+
+For each pairwise bias, D is the set of items whose unperturbed reference
+judgment y parsed. Robustness Rate is I(y == y_hat) over D, and Consistency
+Rate is I(y == y_rand) over the items in D that have a <reference>_rand
+repeat. A perturbed or repeated judgment that failed to parse counts as a
+disagreement. RR is the headline metric for every pairwise bias except
+fallacy: its rewrite flips which answer is better, so its headline is accuracy
+against the expected answer.
+
+Refinement uses the refined_given_history condition;
+files from before that prompt existed have no Err_RA.
 """
 
 import argparse
@@ -29,16 +39,35 @@ IGNORED_BIASES = {"self-enhancement"}
 
 REFERENCE_CONDITIONS = {"position": "order_ab"}
 DEFAULT_REFERENCE = "baseline"
+RAND_SUFFIX = "_rand"
+
+ACCURACY_BIASES = {"fallacy"}
+WILSON_Z = 1.96
+
+HISTORY_CONDITION = "refined_given_history"
 
 ROBUST_COLUMNS = [
     "model",
     "bias",
     "condition",
+    "metric",
     "n",
+    "n_failed",
     "rr",
     "acc_baseline",
     "acc_condition",
+    "headline",
 ]
+CONSISTENCY_COLUMNS = [
+    "model",
+    "bias",
+    "n_cr",
+    "n_cr_failed",
+    "cr",
+    "cr_low",
+    "cr_high",
+]
+SUMMARY_COLUMNS = ["model", "bias", "metric", "n", "rr", "headline", "n_cr", "cr"]
 COT_COLUMNS = ["model", "n", "acc_ori", "acc_cot", "air"]
 REFINEMENT_COLUMNS = [
     "model",
@@ -56,6 +85,24 @@ VERDICTS = {"A", "B", "C"}
 
 def reference_condition(bias):
     return REFERENCE_CONDITIONS.get(bias, DEFAULT_REFERENCE)
+
+
+def rand_condition(bias):
+    return reference_condition(bias) + RAND_SUFFIX
+
+
+def headline_metric(bias):
+    return "acc" if bias in ACCURACY_BIASES else "rr"
+
+
+def wilson_interval(successes, n, z=WILSON_Z):
+    if n == 0:
+        return float("nan"), float("nan")
+    p = successes / n
+    denominator = 1 + z * z / n
+    center = (p + z * z / (2 * n)) / denominator
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denominator
+    return center - half, center + half
 
 
 def map_choice(bias, condition, verdict):
@@ -158,72 +205,132 @@ def parse_summary(frame):
     )
 
 
+def _by_index(group, condition):
+    rows = group[group["condition"] == condition]
+    return rows.drop_duplicates("index", keep="last").set_index("index")
+
+
+def _agreement(bias, reference, ref_name, other, condition):
+    """Compare y with another judgment over the parsed reference items.
+
+    Returns the shared reference rows, the other rows, and one agreement flag
+    per item. A judgment that failed to parse never agrees with y.
+    """
+    shared = reference.index.intersection(other.index)
+    base = reference.loc[shared]
+    other = other.loc[shared]
+    agree = [
+        bool(parsed)
+        and map_choice(bias, ref_name, left) == map_choice(bias, condition, right)
+        for left, right, parsed in zip(base["verdict"], other["verdict"], other["parsed"])
+    ]
+    return base, other, agree
+
+
 def pairwise_metrics(frame):
+    """Return (robustness, consistency) tables for the pairwise biases."""
+    empty = (
+        pd.DataFrame(columns=ROBUST_COLUMNS),
+        pd.DataFrame(columns=CONSISTENCY_COLUMNS),
+    )
     if frame.empty:
-        return pd.DataFrame(columns=ROBUST_COLUMNS)
+        return empty
     pairwise = frame[(frame["kind"] == "pairwise") & ~frame["bias"].isin(SKIP_PAIRWISE)]
     rows = []
+    consistency = []
     grouped = pairwise.groupby(["model", "bias"], sort=True)
     for (model, bias), group in grouped:
         ref_name = reference_condition(bias)
-        reference = group[group["condition"] == ref_name]
+        rand_name = rand_condition(bias)
+        reference = _by_index(group, ref_name)
+        reference = reference[reference["parsed"].astype(bool)]
         if reference.empty:
-            print(f"No {ref_name} judgments for {model} / {bias}; skipping RR")
+            print(f"No parsed {ref_name} judgments for {model} / {bias}; skipping RR")
             continue
-        reference = reference.drop_duplicates("index", keep="last").set_index("index")
+
+        repeat = _by_index(group, rand_name)
+        if repeat.empty:
+            print(f"No {rand_name} judgments for {model} / {bias}; CR not computed")
+        _, repeat, agree = _agreement(bias, reference, ref_name, repeat, rand_name)
+        low, high = wilson_interval(sum(agree), len(agree))
+        consistency.append(
+            {
+                "model": model,
+                "bias": bias,
+                "n_cr": len(agree),
+                "n_cr_failed": int((~repeat["parsed"].astype(bool)).sum()),
+                "cr": sum(agree) / len(agree) if agree else float("nan"),
+                "cr_low": low,
+                "cr_high": high,
+            }
+        )
+
         conditions = sorted(
             condition
             for condition in group["condition"].unique()
-            if condition != ref_name
+            if condition not in (ref_name, rand_name)
         )
+        metric = headline_metric(bias)
         for condition in conditions:
-            perturbed = group[group["condition"] == condition]
-            perturbed = perturbed.drop_duplicates("index", keep="last").set_index(
-                "index"
+            perturbed = _by_index(group, condition)
+            base, other, agree = _agreement(
+                bias, reference, ref_name, perturbed, condition
             )
-            shared = reference.index.intersection(perturbed.index)
-            paired = [
-                index
-                for index in shared
-                if reference.at[index, "parsed"] and perturbed.at[index, "parsed"]
-            ]
-            if not paired:
-                rows.append(
-                    {
-                        "model": model,
-                        "bias": bias,
-                        "condition": condition,
-                        "n": 0,
-                        "rr": float("nan"),
-                        "acc_baseline": float("nan"),
-                        "acc_condition": float("nan"),
-                    }
-                )
-                continue
-            base = reference.loc[paired]
-            other = perturbed.loc[paired]
-            same_answer = [
-                map_choice(bias, ref_name, left) == map_choice(bias, condition, right)
-                for left, right in zip(base["verdict"], other["verdict"])
-            ]
+            n = len(agree)
+            rr = sum(agree) / n if n else float("nan")
+            acc_condition = mean_match(other["verdict"], other["unbiased_verdict"])
             rows.append(
                 {
                     "model": model,
                     "bias": bias,
                     "condition": condition,
-                    "n": len(paired),
-                    "rr": sum(same_answer) / len(paired),
+                    "metric": metric,
+                    "n": n,
+                    "n_failed": int((~other["parsed"].astype(bool)).sum()),
+                    "rr": rr,
                     "acc_baseline": mean_match(
                         base["verdict"], base["unbiased_verdict"]
                     ),
-                    "acc_condition": mean_match(
-                        other["verdict"], other["unbiased_verdict"]
-                    ),
+                    "acc_condition": acc_condition,
+                    "headline": acc_condition if metric == "acc" else rr,
                 }
             )
-    if not rows:
-        return pd.DataFrame(columns=ROBUST_COLUMNS)
-    return pd.DataFrame(rows)[ROBUST_COLUMNS]
+    robust = pd.DataFrame(rows, columns=ROBUST_COLUMNS)
+    return robust, pd.DataFrame(consistency, columns=CONSISTENCY_COLUMNS)
+
+
+def bias_summary(robust, consistency):
+    """One row per model and bias: n-weighted RR and headline, plus CR."""
+    if robust.empty:
+        return pd.DataFrame(columns=SUMMARY_COLUMNS)
+    rows = []
+    for (model, bias), group in robust.groupby(["model", "bias"], sort=True):
+        usable = group[group["n"] > 0]
+        weights = usable["n"]
+        total = int(weights.sum())
+
+        def weighted(column):
+            values = usable[column]
+            mask = values.notna()
+            if not mask.any():
+                return float("nan")
+            return float((values[mask] * weights[mask]).sum() / weights[mask].sum())
+
+        rows.append(
+            {
+                "model": model,
+                "bias": bias,
+                "metric": headline_metric(bias),
+                "n": total,
+                "rr": weighted("rr"),
+                "headline": weighted("headline"),
+            }
+        )
+    summary = pd.DataFrame(rows)
+    summary = summary.merge(
+        consistency[["model", "bias", "n_cr", "cr"]], on=["model", "bias"], how="left"
+    )
+    return summary[SUMMARY_COLUMNS]
 
 
 def cot_metrics(frame):
@@ -286,15 +393,18 @@ def refinement_metrics(frame):
         wide = group.pivot_table(
             index="index", columns="condition", values="rating", aggfunc="last"
         )
-        needed = ["refined", "refined_with_history"]
+        needed = ["refined", HISTORY_CONDITION]
         if any(column not in wide.columns for column in needed):
-            print(f"Refinement for {model} is missing refined scores")
+            print(
+                f"Refinement for {model} has no {HISTORY_CONDITION} scores; "
+                "rerun judge.py refinement to compute Err_RA"
+            )
             continue
         paired = wide.dropna(subset=needed)
         if paired.empty:
             continue
         mean_refined = float(paired["refined"].mean())
-        mean_history = float(paired["refined_with_history"].mean())
+        mean_history = float(paired[HISTORY_CONDITION].mean())
         if mean_refined == 0:
             error_rate = float("nan")
         else:
@@ -304,7 +414,7 @@ def refinement_metrics(frame):
             item_ratio = float("nan")
         else:
             item_ratio = float(
-                (usable["refined_with_history"] / usable["refined"]).mean()
+                (usable[HISTORY_CONDITION] / usable["refined"]).mean()
             )
         if "original" in paired.columns:
             mean_original = float(paired["original"].mean())
@@ -366,14 +476,30 @@ def _heatmap(table, value, path, title, vmin=0, vmax=1):
     plt.close(fig)
 
 
+def _interpretable_rr(robust):
+    """Fallacy's expected answer flips under the perturbation, so its RR is noise."""
+    return robust[robust["bias"] != "fallacy"]
+
+
 def plot_rr_heatmap(robust, out_dir):
-    table = robust.dropna(subset=["rr"]).copy()
+    table = _interpretable_rr(robust).dropna(subset=["rr"]).copy()
     table["column"] = table["bias"] + "/" + table["condition"]
     _heatmap(
         table,
         "rr",
         out_dir / "rr_heatmap.png",
         "Robustness rate",
+    )
+
+
+def plot_cr_heatmap(consistency, out_dir):
+    table = consistency.dropna(subset=["cr"]).copy()
+    table["column"] = table["bias"]
+    _heatmap(
+        table,
+        "cr",
+        out_dir / "cr_heatmap.png",
+        "Consistency rate",
     )
 
 
@@ -408,6 +534,7 @@ def plot_accuracy_heatmap(robust, out_dir):
 
 
 def plot_rr_bars(robust, out_dir):
+    robust = _interpretable_rr(robust)
     if robust.empty:
         return
     for bias, group in robust.groupby("bias", sort=True):
@@ -464,20 +591,22 @@ def plot_refinement(refinement, out_dir):
     plt.close(fig)
 
 
-def print_rr_summary(robust):
+def print_rr_summary(robust, consistency, summary):
     if robust.empty:
         print("No pairwise results to summarize.")
         return
-    print("Robustness rate by model and bias:")
-    rolled = robust.groupby(["model", "bias"], as_index=False).agg(
-        rr=("rr", "mean"),
-        conditions=("condition", "nunique"),
-        n=("n", "sum"),
+    float_format = "{:.3f}".format
+    print(
+        "Per bias (rr and headline are weighted by n across conditions; "
+        "headline is acc for fallacy, whose rr is not meaningful, and rr otherwise):"
     )
-    print(rolled.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    print(summary.to_string(index=False, float_format=float_format))
     print()
-    print("Robustness rate by condition:")
-    print(robust.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+    print("Consistency rate with 95% Wilson interval:")
+    print(consistency.to_string(index=False, float_format=float_format))
+    print()
+    print("By condition:")
+    print(robust.to_string(index=False, float_format=float_format))
 
 
 def run(results_dir, out_dir, models=None, biases=None):
@@ -490,23 +619,27 @@ def run(results_dir, out_dir, models=None, biases=None):
         return
 
     summary = parse_summary(frame)
-    robust = pairwise_metrics(frame)
+    robust, consistency = pairwise_metrics(frame)
+    per_bias = bias_summary(robust, consistency)
     cot = cot_metrics(frame)
     refinement = refinement_metrics(frame)
 
     write_table(summary, out_dir / "parse_summary.csv")
     write_table(robust, out_dir / "robustness.csv")
+    write_table(consistency, out_dir / "consistency.csv")
+    write_table(per_bias, out_dir / "bias_summary.csv")
     write_table(cot, out_dir / "cot.csv")
     write_table(refinement, out_dir / "refinement.csv")
 
     sns.set_theme(style="whitegrid", context="notebook")
     plot_rr_heatmap(robust, out_dir)
+    plot_cr_heatmap(consistency, out_dir)
     plot_accuracy_heatmap(robust, out_dir)
     plot_rr_bars(robust, out_dir)
     plot_cot(cot, out_dir)
     plot_refinement(refinement, out_dir)
 
-    print_rr_summary(robust)
+    print_rr_summary(robust, consistency, per_bias)
     if cot.empty:
         print("\nNo chain-of-thought results; cot.csv is empty.")
     else:
@@ -524,7 +657,10 @@ def run(results_dir, out_dir, models=None, biases=None):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Compute robustness, accuracy, CoT AIR, and refinement error rate.",
+        description=(
+            "Compute robustness, consistency, accuracy, CoT AIR, and refinement "
+            "error rate."
+        ),
     )
     parser.add_argument(
         "--results",

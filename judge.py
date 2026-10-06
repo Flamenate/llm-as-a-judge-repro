@@ -13,10 +13,17 @@ string. Own-answer generation is not capped.
 Each bias runs every condition needed to compare an unperturbed judgment
 with the perturbed one. Results are written after every call to
 results/<model>__<bias>.json and a rerun skips calls that already succeeded.
+
+Pairwise biases also repeat the unperturbed judgment as <reference>_rand for a
+seeded random subset of items (--cr-fraction of the full dataset) so analyze.py
+can compute the Consistency Rate. Every call is a fresh, stateless generate
+request, so the repeat is an independent judgment at the same temperature.
+With --temperature 0 the repeat is deterministic and CR is trivially 1.
 """
 
 import argparse
 import json
+import random
 import re
 import time
 from pathlib import Path
@@ -32,6 +39,7 @@ from promptTemplate import (
     compassion_fade_prompt,
     evaluate_ai_responses,
     get_score,
+    get_score_with_history,
     self_enhancement_bias_prompt,
 )
 
@@ -90,6 +98,8 @@ BANDWAGON_PERCENTS = (60, 70, 80, 90)
 
 SENTIMENT_TONES = ("cheerful", "sad", "angry", "fear")
 
+CR_FRACTION = 0.5
+CR_SEED = 2024
 
 def fetch_from_dataset(dataset_path):
     with open(dataset_path, "r", encoding="utf-8") as file:
@@ -116,21 +126,56 @@ def pairwise(condition, question, answer_a, answer_b, detail, unbiased_verdict):
     )
 
 
+def reference_pair(
+    condition, question, answer_a, answer_b, detail, expected, with_rand
+):
+    jobs = [pairwise(condition, question, answer_a, answer_b, detail, expected)]
+    if with_rand:
+        jobs.append(
+            pairwise(
+                f"{condition}_rand",
+                question,
+                answer_a,
+                answer_b,
+                f"{detail} (repeat for consistency)",
+                expected,
+            )
+        )
+    return jobs
+
+
+def baseline(item, with_rand, detail="answer1 vs answer2"):
+    return reference_pair(
+        "baseline",
+        item["question"],
+        item["answer1"],
+        item["answer2"],
+        detail,
+        "A",
+        with_rand,
+    )
+
+
+def cr_subset(size, fraction, seed=CR_SEED):
+    rng = random.Random(seed)
+    return set(rng.sample(range(size), round(size * fraction)))
+
+
 def score(condition, question, answer, detail):
     return job(condition, get_score(question, answer), "score", detail, None)
 
 
-def build_position(item, own_answer=None):
+def build_position(item, own_answer=None, with_rand=False):
     question = item["question"]
-    return [
-        pairwise(
-            "order_ab",
-            question,
-            item["answer1"],
-            item["answer2"],
-            "answer1 as A, answer2 as B",
-            "A",
-        ),
+    return reference_pair(
+        "order_ab",
+        question,
+        item["answer1"],
+        item["answer2"],
+        "answer1 as A, answer2 as B",
+        "A",
+        with_rand,
+    ) + [
         pairwise(
             "order_ba",
             question,
@@ -142,18 +187,9 @@ def build_position(item, own_answer=None):
     ]
 
 
-def build_verbosity(item, own_answer=None):
+def build_verbosity(item, own_answer=None, with_rand=False):
     question = item["question"]
-    jobs = [
-        pairwise(
-            "baseline",
-            question,
-            item["answer1"],
-            item["answer2"],
-            "answer1 vs answer2",
-            "A",
-        )
-    ]
+    jobs = baseline(item, with_rand)
     longer = item.get("answer2_longer")
     if longer:
         jobs.append(
@@ -171,18 +207,9 @@ def build_verbosity(item, own_answer=None):
     return jobs
 
 
-def build_fallacy(item, own_answer=None):
+def build_fallacy(item, own_answer=None, with_rand=False):
     question = item["question"]
-    jobs = [
-        pairwise(
-            "baseline",
-            question,
-            item["answer1"],
-            item["answer2"],
-            "answer1 vs answer2",
-            "A",
-        )
-    ]
+    jobs = baseline(item, with_rand)
     fallacious = item.get("answer1_fallacy_oversight")
     if fallacious:
         jobs.append(
@@ -200,18 +227,9 @@ def build_fallacy(item, own_answer=None):
     return jobs
 
 
-def build_authority(item, own_answer=None):
+def build_authority(item, own_answer=None, with_rand=False):
     question = item["question"]
-    jobs = [
-        pairwise(
-            "baseline",
-            question,
-            item["answer1"],
-            item["answer2"],
-            "answer1 vs answer2",
-            "A",
-        )
-    ]
+    jobs = baseline(item, with_rand)
     for kind in ("book", "quote", "url"):
         field = f"answer2_with_reference_{kind}"
         cited = item.get(field)
@@ -231,18 +249,9 @@ def build_authority(item, own_answer=None):
     return jobs
 
 
-def build_sentiment(item, own_answer=None):
+def build_sentiment(item, own_answer=None, with_rand=False):
     question = item["question"]
-    jobs = [
-        pairwise(
-            "baseline",
-            question,
-            item["answer1"],
-            item["answer2"],
-            "answer1 vs answer2",
-            "A",
-        )
-    ]
+    jobs = baseline(item, with_rand)
     for tone in SENTIMENT_TONES:
         better = item.get(f"answer1_{tone}")
         worse = item.get(f"answer2_{tone}")
@@ -275,35 +284,24 @@ def build_sentiment(item, own_answer=None):
     return jobs
 
 
-def build_refinement(item, own_answer=None):
+def build_refinement(item, own_answer=None, with_rand=False):
     question = item["question"]
-    # The study scores the refined answer alone, and again as one response
-    # that still contains the original wording (the refinement history).
-    with_history = f"{item['answer1']}\n\n{item['answer1_polished']}"
     return [
         score("original", question, item["answer1"], "score answer1"),
         score("refined", question, item["answer1_polished"], "score answer1_polished"),
-        score(
-            "refined_with_history",
-            question,
-            with_history,
-            "score answer1 followed by answer1_polished",
+        job(
+            "refined_given_history",
+            get_score_with_history(question, item["answer1"], item["answer1_polished"]),
+            "score",
+            "score answer1_polished shown as a refinement of answer1",
+            None,
         ),
     ]
 
 
-def build_bandwagon(item, own_answer=None):
+def build_bandwagon(item, own_answer=None, with_rand=False):
     question = item["question"]
-    jobs = [
-        pairwise(
-            "baseline",
-            question,
-            item["answer1"],
-            item["answer2"],
-            "answer1 vs answer2",
-            "A",
-        )
-    ]
+    jobs = baseline(item, with_rand)
     for percent in BANDWAGON_PERCENTS:
         jobs.append(
             job(
@@ -323,17 +321,9 @@ def build_bandwagon(item, own_answer=None):
     return jobs
 
 
-def build_distraction(item, own_answer=None):
+def build_distraction(item, own_answer=None, with_rand=False):
     question = item["question"]
-    return [
-        pairwise(
-            "baseline",
-            question,
-            item["answer1"],
-            item["answer2"],
-            "answer1 vs answer2",
-            "A",
-        ),
+    return baseline(item, with_rand) + [
         job(
             "distract_a",
             Dstraction_Bias_A(question, item["answer1"], item["answer2"]),
@@ -351,18 +341,9 @@ def build_distraction(item, own_answer=None):
     ]
 
 
-def build_diversity(item, own_answer=None):
+def build_diversity(item, own_answer=None, with_rand=False):
     question = item["question"]
-    jobs = [
-        pairwise(
-            "baseline",
-            question,
-            item["answer1"],
-            item["answer2"],
-            "answer1 vs answer2",
-            "A",
-        )
-    ]
+    jobs = baseline(item, with_rand)
     for group in DIVERSITY_GROUPS:
         label = group.lower().replace(" ", "_")
         jobs.append(
@@ -383,17 +364,9 @@ def build_diversity(item, own_answer=None):
     return jobs
 
 
-def build_compassion(item, own_answer=None):
+def build_compassion(item, own_answer=None, with_rand=False):
     question = item["question"]
-    return [
-        pairwise(
-            "baseline",
-            question,
-            item["answer1"],
-            item["answer2"],
-            "anonymous Assistant A vs Assistant B",
-            "A",
-        ),
+    return baseline(item, with_rand, "anonymous Assistant A vs Assistant B") + [
         job(
             "gpt4_vs_llama",
             compassion_fade_prompt(
@@ -423,17 +396,9 @@ def build_compassion(item, own_answer=None):
     ]
 
 
-def build_cot(item, own_answer=None):
+def build_cot(item, own_answer=None, with_rand=False):
     question = item["question"]
-    return [
-        pairwise(
-            "baseline",
-            question,
-            item["answer1"],
-            item["answer2"],
-            "answer1 vs answer2",
-            "A",
-        ),
+    return baseline(item, with_rand) + [
         job(
             "cot",
             CotPrompt(question, item["answer1"], item["answer2"]),
@@ -444,7 +409,7 @@ def build_cot(item, own_answer=None):
     ]
 
 
-def build_self_enhancement(item, own_answer=None):
+def build_self_enhancement(item, own_answer=None, with_rand=False):
     question = item["question"]
     reference = item["answer1"]
     jobs = []
@@ -538,7 +503,7 @@ BIASES = {
     "refinement": {
         "dataset": BIAS_DATASETS / "refinement_bias_standardized.json",
         "build": build_refinement,
-        "summary": "Score the original answer, the polished answer, and both together.",
+        "summary": "Score the original, the polished answer, and the polished answer with its history.",
     },
 }
 
@@ -569,13 +534,15 @@ def output_path_for(model, bias, explicit):
     return RESULTS_DIR / f"{safe_model}__{bias}.json"
 
 
-def load_payload(path, model, bias, dataset_path, temperature):
+def load_payload(path, model, bias, dataset_path, temperature, cr_fraction):
     payload = {
         "model": model,
         "bias": bias,
         "dataset": str(dataset_path.relative_to(ROOT)),
         "temperature": temperature,
         "num_predict": NUM_PREDICT,
+        "cr_fraction": cr_fraction,
+        "cr_seed": CR_SEED,
         "results": [],
     }
     if not path.exists():
@@ -587,6 +554,14 @@ def load_payload(path, model, bias, dataset_path, temperature):
             f"{path} already holds {existing.get('model')!r} / {existing.get('bias')!r}. "
             "Pass --output to write a different file."
         )
+    for field, value in (("cr_fraction", cr_fraction), ("cr_seed", CR_SEED)):
+        saved = existing.get(field)
+        if saved is not None and saved != value:
+            raise SystemExit(
+                f"{path} was run with {field}={saved!r}, not {value!r}. "
+                "Use the same value or pass --output to write a different file."
+            )
+        existing[field] = value
     existing.setdefault("results", [])
     return existing
 
@@ -735,7 +710,7 @@ def commit(payload, path, record):
     save_payload(path, payload)
 
 
-def run(model, bias, limit, output, temperature, host):
+def run(model, bias, limit, output, temperature, host, cr_fraction):
     global _run_started, client
     _run_started = time.perf_counter()
     client = ollama.Client(host=host)
@@ -745,26 +720,37 @@ def run(model, bias, limit, output, temperature, host):
         dataset_view = list(enumerate(dataset[:limit]))
     else:
         dataset_view = list(enumerate(dataset))
+    cr_items = cr_subset(len(dataset), cr_fraction)
 
     path = output_path_for(model, bias, output)
-    payload = load_payload(path, model, bias, spec["dataset"], temperature)
+    payload = load_payload(
+        path, model, bias, spec["dataset"], temperature, cr_fraction
+    )
     repaired = repair_saved(payload["results"])
     if repaired:
         save_payload(path, payload)
         log(f"Recovered {repaired} verdicts from saved thinking text")
     done = completed_keys(payload["results"])
     try:
-        sample_jobs = spec["build"](dataset[0], own_answer="")
+        sample_jobs = spec["build"](dataset[0], own_answer="", with_rand=False)
+        rand_jobs = spec["build"](dataset[0], own_answer="", with_rand=True)
     except KeyError as exc:
         missing = exc.args[0] if exc.args else exc
         log(f"sample item is missing {missing}; call estimate may be short")
-        sample_jobs = []
-    total_calls = len(dataset_view) * len(sample_jobs)
+        sample_jobs = rand_jobs = []
+    rand_count = sum(1 for index, _ in dataset_view if index in cr_items)
+    extra_per_item = len(rand_jobs) - len(sample_jobs)
+    total_calls = len(dataset_view) * len(sample_jobs) + rand_count * extra_per_item
 
     log(f"Ollama host: {host}")
     log(
-        f"{bias}: {len(dataset_view)} items x {len(sample_jobs)} conditions "
-        f"({total_calls} calls, {len(done)} already saved)"
+        f"{bias}: {len(dataset_view)} items x {len(sample_jobs)} conditions"
+        + (
+            f", plus a consistency repeat on {rand_count} items"
+            if extra_per_item
+            else ""
+        )
+        + f" ({total_calls} calls, {len(done)} already saved)"
     )
     log(f"Writing {path}. Press Ctrl+C to stop; saved judgments are kept.")
     total_items = len(dataset_view)
@@ -780,6 +766,7 @@ def run(model, bias, limit, output, temperature, host):
             payload,
             done,
             total_items,
+            cr_items,
         )
     except KeyboardInterrupt:
         log(
@@ -792,7 +779,16 @@ def run(model, bias, limit, output, temperature, host):
 
 
 def _judge_dataset(
-    bias, dataset_view, spec, model, temperature, path, payload, done, total_items
+    bias,
+    dataset_view,
+    spec,
+    model,
+    temperature,
+    path,
+    payload,
+    done,
+    total_items,
+    cr_items,
 ):
     for index, item in dataset_view:
         own_answer = None
@@ -827,7 +823,9 @@ def _judge_dataset(
                 log(f"[{index + 1}/{total_items}] self: {exc} ({took:.1f}s)")
 
         try:
-            pending_jobs = spec["build"](item, own_answer=own_answer)
+            pending_jobs = spec["build"](
+                item, own_answer=own_answer, with_rand=index in cr_items
+            )
         except KeyError as exc:
             missing = exc.args[0] if exc.args else exc
             log(f"[{index + 1}/{total_items}] skipped item: missing {missing}")
@@ -917,9 +915,20 @@ def parse_args():
         default=OLLAMA_HOST,
         help=f"Ollama host (default: {OLLAMA_HOST})",
     )
+    parser.add_argument(
+        "--cr-fraction",
+        type=float,
+        default=CR_FRACTION,
+        help=(
+            "Fraction of the full dataset that gets a repeated unperturbed "
+            f"judgment for the Consistency Rate (default: {CR_FRACTION})"
+        ),
+    )
     args = parser.parse_args()
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
+    if not 0 <= args.cr_fraction <= 1:
+        parser.error("--cr-fraction must be between 0 and 1")
     args.bias = resolve_bias(args.bias)
     return args
 
@@ -933,4 +942,5 @@ if __name__ == "__main__":
         arguments.output,
         arguments.temperature,
         arguments.host,
+        arguments.cr_fraction,
     )

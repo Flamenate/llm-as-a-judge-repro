@@ -1,0 +1,11 @@
+model,bias,metric,n,rr,headline,n_cr,cr
+qwen3:4b,authority,rr,423,0.770686,0.770686,0,
+qwen3:4b,bandwagon,rr,1712,0.782710,0.782710,0,
+qwen3:4b,compassion,rr,680,0.805882,0.805882,163,0.791411
+qwen3:4b,cot,rr,432,0.840278,0.840278,0,
+qwen3:4b,distraction,rr,866,0.812933,0.812933,0,
+qwen3:4b,diversity,rr,1002,0.851297,0.851297,0,
+qwen3:4b,fallacy,acc,500,0.428000,0.580000,0,
+qwen3:4b,position,rr,432,0.710648,0.710648,0,
+qwen3:4b,sentiment,rr,1193,0.706622,0.706622,75,0.973333
+qwen3:4b,verbosity,rr,500,0.964000,0.964000,0,

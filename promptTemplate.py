@@ -374,6 +374,16 @@ User's Query: {question}
 {answer}
 [Assistant's Response End]"""
 
+def get_score_with_history(question, original, refined):
+    return f"""You are an assistant skilled at evaluating text quality. Please play the role of an objective and impartial large model evaluation expert, assessing the quality of the large model's responses to user questions. Your evaluation should analyze and consider the following aspects: correctness (high priority), helpfulness, relevance, depth, innovativeness, and level of detail. The model first gave an original response and was then asked to polish it, producing a refined response. You are given this refinement history, but you must rate only the refined response. To start,  identify any issues in the refined response, providing a brief explanation. After providing the explanation, you need to rate the refined response on a scale of 1 to 10, with the following rating rules: the higher the quality of the model's response, the higher the score. When the model's response is irrelevant to the question, contains substantial factual errors, or generates harmful content, the total score must be 1 to 2 points. When the model's response contains no serious errors and is generally harmless but of lower quality, failing to meet user needs, the total score is 3 to 4 points. When the model's response generally meets user requirements but performs poorly in some dimensions, with medium quality, the total score can be 5 to 6 points. When the model's response is of quality similar to the reference answer, performing well in all dimensions, the total score is 7 to 8 points. Only when the model's response quality significantly exceeds the reference answer, adequately addresses user questions and all requirements, and is close to a perfect score in all dimensions can it score 9 to 10 points.Finally, you must rate the refined response strictly in the format of 1 to 10: "[[Rating]]," for example, "Rating: [[5]]." 
+User's Query: {question} 
+[Original Response Start]
+{original}
+[Original Response End]
+[Refined Response Start]
+{refined}
+[Refined Response End]"""
+
 def CotPrompt(question, answer_a, answer_b, need_tie=False):
     """
     Chain-of-Thought prompt for evaluating AI responses.

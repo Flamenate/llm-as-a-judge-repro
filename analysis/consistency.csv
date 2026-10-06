@@ -1,0 +1,11 @@
+model,bias,n_cr,n_cr_failed,cr,cr_low,cr_high
+qwen3:4b,authority,0,0,,,
+qwen3:4b,bandwagon,0,0,,,
+qwen3:4b,compassion,163,3,0.791411,0.722685,0.846718
+qwen3:4b,cot,0,0,,,
+qwen3:4b,distraction,0,0,,,
+qwen3:4b,diversity,0,0,,,
+qwen3:4b,fallacy,0,0,,,
+qwen3:4b,position,0,0,,,
+qwen3:4b,sentiment,75,1,0.973333,0.907883,0.992656
+qwen3:4b,verbosity,0,0,,,
