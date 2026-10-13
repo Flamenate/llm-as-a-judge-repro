@@ -8,7 +8,7 @@ Usage:
 Prompt text is taken from promptTemplate.py. Judge calls append a brevity
 instruction and cap generation at NUM_PREDICT tokens. Structured output is
 requested with Ollama's response schema, which is separate from the prompt
-string. Own-answer generation is not capped.
+string.
 
 Each bias runs every condition needed to compare an unperturbed judgment
 with the perturbed one. Results are written after every call to
@@ -19,6 +19,10 @@ seeded random subset of items (--cr-fraction of the full dataset) so analyze.py
 can compute the Consistency Rate. Every call is a fresh, stateless generate
 request, so the repeat is an independent judgment at the same temperature.
 With --temperature 0 the repeat is deterministic and CR is trivially 1.
+
+Self-enhancement only scores other models' saved answers for the same item.
+It does not generate or score this model's own response. Those cross-scores
+are y_other in ErrorRate_SE. Completed calls are skipped.
 """
 
 import argparse
@@ -101,19 +105,23 @@ SENTIMENT_TONES = ("cheerful", "sad", "angry", "fear")
 CR_FRACTION = 0.5
 CR_SEED = 2024
 
+
 def fetch_from_dataset(dataset_path):
     with open(dataset_path, "r", encoding="utf-8") as file:
         return json.load(file)
 
 
-def job(condition, prompt, kind, detail, unbiased_verdict=None):
-    return {
+def job(condition, prompt, kind, detail, unbiased_verdict=None, scored_answer=None):
+    pending = {
         "condition": condition,
         "prompt": prompt,
         "kind": kind,
         "detail": detail,
         "unbiased_verdict": unbiased_verdict,
     }
+    if scored_answer is not None:
+        pending["scored_answer"] = scored_answer
+    return pending
 
 
 def pairwise(condition, question, answer_a, answer_b, detail, unbiased_verdict):
@@ -409,38 +417,21 @@ def build_cot(item, own_answer=None, with_rand=False):
     ]
 
 
-def build_self_enhancement(item, own_answer=None, with_rand=False):
+def build_self_enhancement(item, own_answer=None, with_rand=False, other_answers=None):
     question = item["question"]
     reference = item["answer1"]
     jobs = []
-    if own_answer is not None:
+    for other in other_answers or []:
         jobs.append(
             job(
-                "self",
-                self_enhancement_bias_prompt(question, reference, own_answer),
+                other["condition"],
+                self_enhancement_bias_prompt(question, reference, other["answer"]),
                 "score",
-                "score this model's own answer against answer1",
+                f"score {other['model']}'s answer against answer1",
                 None,
+                scored_answer=other["answer"],
             )
         )
-    jobs.append(
-        job(
-            "answer1",
-            self_enhancement_bias_prompt(question, reference, item["answer1"]),
-            "score",
-            "score answer1 against itself as the reference",
-            None,
-        )
-    )
-    jobs.append(
-        job(
-            "answer2",
-            self_enhancement_bias_prompt(question, reference, item["answer2"]),
-            "score",
-            "score answer2 against answer1",
-            None,
-        )
-    )
     return jobs
 
 
@@ -498,7 +489,7 @@ BIASES = {
     "self-enhancement": {
         "dataset": ALIGNMENT,
         "build": build_self_enhancement,
-        "summary": "Score this model's own answer and the dataset answers.",
+        "summary": "Score other models' saved answers. Does not generate or score this model's own response.",
     },
     "refinement": {
         "dataset": BIAS_DATASETS / "refinement_bias_standardized.json",
@@ -525,13 +516,55 @@ def resolve_bias(name):
     return key
 
 
+def safe_model_name(model):
+    return "".join(char if char.isalnum() or char in "-._" else "_" for char in model)
+
+
 def output_path_for(model, bias, explicit):
     if explicit is not None:
         return explicit
-    safe_model = "".join(
-        char if char.isalnum() or char in "-._" else "_" for char in model
-    )
-    return RESULTS_DIR / f"{safe_model}__{bias}.json"
+    return RESULTS_DIR / f"{safe_model_name(model)}__{bias}.json"
+
+
+def load_other_self_answers(model, indices, results_dir=RESULTS_DIR):
+    """Saved self-generated answers from other models, keyed by dataset index.
+
+    ErrorRate_SE needs those other models' scores of this model's answer, and
+    this model's scores of theirs. A run can only score answers that are
+    already on disk.
+    """
+    wanted = set(indices)
+    by_author = {}
+    if not results_dir.is_dir():
+        return by_author
+    for path in sorted(results_dir.glob("*__self-enhancement.json")):
+        with open(path, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+        author = payload.get("model")
+        if not author or author == model or payload.get("bias") != "self-enhancement":
+            continue
+        answers = {}
+        for record in payload.get("results", []):
+            if record.get("condition") != "self" or record.get("index") not in wanted:
+                continue
+            text = record.get("generated_answer")
+            if not isinstance(text, str) or not text.strip():
+                continue
+            answers[record["index"]] = text
+        if answers:
+            by_author[author] = answers
+    return by_author
+
+
+def other_answers_by_index(by_author):
+    grouped = {}
+    for author in sorted(by_author):
+        condition = "other_" + safe_model_name(author)
+        for index, text in by_author[author].items():
+            grouped.setdefault(index, []).append(
+                {"model": author, "answer": text, "condition": condition}
+            )
+    return grouped
 
 
 def load_payload(path, model, bias, dataset_path, temperature, cr_fraction):
@@ -671,7 +704,7 @@ def call_model(model, prompt, schema, temperature):
                 model=model,
                 prompt=prompt,
                 format=schema,
-                think=False,
+                think=True,
                 options=options,
             )
         except Exception as exc:
@@ -679,11 +712,6 @@ def call_model(model, prompt, schema, temperature):
             log(f"  attempt {attempt + 1} failed: {exc}")
             time.sleep(2 * (attempt + 1))
     raise last_error
-
-
-def generate_own_answer(model, question, temperature):
-    response = call_model(model, question, None, temperature)
-    return response.response or "", response.thinking
 
 
 def summarize(output):
@@ -723,14 +751,18 @@ def run(model, bias, limit, output, temperature, host, cr_fraction):
     cr_items = cr_subset(len(dataset), cr_fraction)
 
     path = output_path_for(model, bias, output)
-    payload = load_payload(
-        path, model, bias, spec["dataset"], temperature, cr_fraction
-    )
+    payload = load_payload(path, model, bias, spec["dataset"], temperature, cr_fraction)
     repaired = repair_saved(payload["results"])
     if repaired:
         save_payload(path, payload)
         log(f"Recovered {repaired} verdicts from saved thinking text")
     done = completed_keys(payload["results"])
+    other_by_index = {}
+    if bias == "self-enhancement":
+        by_author = load_other_self_answers(model, [index for index, _ in dataset_view])
+        other_by_index = other_answers_by_index(by_author)
+        authors = ", ".join(sorted(by_author)) or "none yet"
+        log(f"Other models with saved answers: {authors}")
     try:
         sample_jobs = spec["build"](dataset[0], own_answer="", with_rand=False)
         rand_jobs = spec["build"](dataset[0], own_answer="", with_rand=True)
@@ -740,18 +772,33 @@ def run(model, bias, limit, output, temperature, host, cr_fraction):
         sample_jobs = rand_jobs = []
     rand_count = sum(1 for index, _ in dataset_view if index in cr_items)
     extra_per_item = len(rand_jobs) - len(sample_jobs)
-    total_calls = len(dataset_view) * len(sample_jobs) + rand_count * extra_per_item
+    cross_total = sum(len(answers) for answers in other_by_index.values())
+    if bias == "self-enhancement":
+        cross_done = sum(
+            (index, other["condition"]) in done
+            for index, answers in other_by_index.items()
+            for other in answers
+        )
+    else:
+        total_calls = len(dataset_view) * len(sample_jobs) + rand_count * extra_per_item
+        cross_done = 0
 
     log(f"Ollama host: {host}")
-    log(
-        f"{bias}: {len(dataset_view)} items x {len(sample_jobs)} conditions"
-        + (
-            f", plus a consistency repeat on {rand_count} items"
-            if extra_per_item
-            else ""
+    if bias == "self-enhancement":
+        log(
+            f"{bias}: {cross_total} scores of other models' saved answers "
+            f"({cross_done} already saved)"
         )
-        + f" ({total_calls} calls, {len(done)} already saved)"
-    )
+    else:
+        log(
+            f"{bias}: {len(dataset_view)} items x {len(sample_jobs)} conditions"
+            + (
+                f", plus a consistency repeat on {rand_count} items"
+                if extra_per_item
+                else ""
+            )
+            + f" ({total_calls} calls, {len(done)} already saved)"
+        )
     log(f"Writing {path}. Press Ctrl+C to stop; saved judgments are kept.")
     total_items = len(dataset_view)
 
@@ -767,6 +814,7 @@ def run(model, bias, limit, output, temperature, host, cr_fraction):
             done,
             total_items,
             cr_items,
+            other_by_index,
         )
     except KeyboardInterrupt:
         log(
@@ -789,43 +837,17 @@ def _judge_dataset(
     done,
     total_items,
     cr_items,
+    other_by_index,
 ):
     for index, item in dataset_view:
-        own_answer = None
-        own_thinking = None
-        if bias == "self-enhancement" and (index, "self") not in done:
-            started = time.perf_counter()
-            try:
-                own_answer, own_thinking = generate_own_answer(
-                    model, item["question"], temperature
-                )
-            except Exception as exc:
-                own_answer = None
-                took = time.perf_counter() - started
-                commit(
-                    payload,
-                    path,
-                    {
-                        "index": index,
-                        "condition": "self",
-                        "detail": "score this model's own answer against answer1",
-                        "data_resource": item.get("data_resource"),
-                        "question": item["question"],
-                        "kind": "score",
-                        "unbiased_verdict": None,
-                        "output": None,
-                        "raw_response": None,
-                        "thinking": None,
-                        "generated_answer": None,
-                        "error": str(exc),
-                    },
-                )
-                log(f"[{index + 1}/{total_items}] self: {exc} ({took:.1f}s)")
-
         try:
-            pending_jobs = spec["build"](
-                item, own_answer=own_answer, with_rand=index in cr_items
-            )
+            build_kwargs = {"with_rand": index in cr_items}
+            if bias == "self-enhancement":
+                others = other_by_index.get(index, [])
+                if not others:
+                    continue
+                build_kwargs["other_answers"] = others
+            pending_jobs = spec["build"](item, own_answer=None, **build_kwargs)
         except KeyError as exc:
             missing = exc.args[0] if exc.args else exc
             log(f"[{index + 1}/{total_items}] skipped item: missing {missing}")
@@ -849,9 +871,8 @@ def _judge_dataset(
                 "thinking": None,
                 "error": None,
             }
-            if pending["condition"] == "self":
-                record["generated_answer"] = own_answer
-                record["thinking"] = own_thinking
+            if pending.get("scored_answer") is not None:
+                record["generated_answer"] = pending["scored_answer"]
 
             started = time.perf_counter()
             try:

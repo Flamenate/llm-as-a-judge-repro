@@ -6,7 +6,7 @@ Usage:
     python analyze.py --models qwen3:4b --biases fallacy position
 
 Reads results/<model>__<bias>.json files written by judge.py. Writes CSV
-tables and PNG charts under analysis/. Self-enhancement is not computed.
+tables and PNG charts under analysis/.
 
 For each pairwise bias, D is the set of items whose unperturbed reference
 judgment y parsed. Robustness Rate is I(y == y_hat) over D, and Consistency
@@ -18,6 +18,10 @@ against the expected answer.
 
 Refinement uses the refined_given_history condition;
 files from before that prompt existed have no Err_RA.
+
+Self-enhancement ErrorRate_SE is y_self / y_other - 1. y_self is the score
+a model gives its own generated answer. y_other is the mean score other
+models give that same answer.
 """
 
 import argparse
@@ -35,7 +39,6 @@ import seaborn as sns
 ROOT = Path(__file__).resolve().parent
 
 SKIP_PAIRWISE = {"refinement", "self-enhancement"}
-IGNORED_BIASES = {"self-enhancement"}
 
 REFERENCE_CONDITIONS = {"position": "order_ab"}
 DEFAULT_REFERENCE = "baseline"
@@ -78,9 +81,21 @@ REFINEMENT_COLUMNS = [
     "error_rate_ra",
     "mean_item_ratio",
 ]
+SELF_COLUMNS = [
+    "model",
+    "n_self",
+    "n",
+    "n_other_judges",
+    "mean_self",
+    "mean_other",
+    "error_rate_se",
+    "mean_item_ratio",
+]
 PARSE_COLUMNS = ["model", "bias", "condition", "total", "parsed", "failed"]
 
 VERDICTS = {"A", "B", "C"}
+RATING_MIN = 1
+RATING_MAX = 10
 
 
 def reference_condition(bias):
@@ -119,9 +134,14 @@ def map_choice(bias, condition, verdict):
 
 
 def is_parsed(verdict, rating):
+    """A verdict letter, or an integer rating on the prompts' 1 to 10 scale."""
     if verdict in VERDICTS:
         return True
-    return isinstance(rating, (int, float)) and not isinstance(rating, bool)
+    if not isinstance(rating, (int, float)) or isinstance(rating, bool):
+        return False
+    if isinstance(rating, float) and not rating.is_integer():
+        return False
+    return RATING_MIN <= rating <= RATING_MAX
 
 
 def _missing(value):
@@ -158,9 +178,6 @@ def load_records(results_dir, models=None, biases=None):
             continue
         if biases and bias not in biases:
             continue
-        if bias in IGNORED_BIASES:
-            print(f"Skipping {path.name}: self-enhancement is not analyzed")
-            continue
         for record in payload.get("results", []):
             output = record.get("output") or {}
             verdict = output.get("verdict")
@@ -178,6 +195,7 @@ def load_records(results_dir, models=None, biases=None):
                     "rating": rating if is_parsed(None, rating) else None,
                     "unbiased_verdict": record.get("unbiased_verdict"),
                     "parsed": is_parsed(verdict, rating),
+                    "generated_answer": record.get("generated_answer"),
                     "source": path.name,
                 }
             )
@@ -222,7 +240,9 @@ def _agreement(bias, reference, ref_name, other, condition):
     agree = [
         bool(parsed)
         and map_choice(bias, ref_name, left) == map_choice(bias, condition, right)
-        for left, right, parsed in zip(base["verdict"], other["verdict"], other["parsed"])
+        for left, right, parsed in zip(
+            base["verdict"], other["verdict"], other["parsed"]
+        )
     ]
     return base, other, agree
 
@@ -413,9 +433,7 @@ def refinement_metrics(frame):
         if usable.empty:
             item_ratio = float("nan")
         else:
-            item_ratio = float(
-                (usable[HISTORY_CONDITION] / usable["refined"]).mean()
-            )
+            item_ratio = float((usable[HISTORY_CONDITION] / usable["refined"]).mean())
         if "original" in paired.columns:
             mean_original = float(paired["original"].mean())
         else:
@@ -434,6 +452,102 @@ def refinement_metrics(frame):
     if not rows:
         return pd.DataFrame(columns=REFINEMENT_COLUMNS)
     return pd.DataFrame(rows)[REFINEMENT_COLUMNS]
+
+
+def _answer_key(text):
+    if _missing(text):
+        return None
+    collapsed = " ".join(str(text).split())
+    return collapsed or None
+
+
+def _other_judge_scores(answer_key, model, scores_by_answer):
+    """Mean of the per-judge mean scores for this answer, excluding model."""
+    per_judge = {}
+    for judge, rating in scores_by_answer.get(answer_key, ()):
+        if judge == model:
+            continue
+        per_judge.setdefault(judge, []).append(rating)
+    if not per_judge:
+        return None, set()
+    means = [sum(ratings) / len(ratings) for ratings in per_judge.values()]
+    return sum(means) / len(means), set(per_judge)
+
+
+def self_enhancement_metrics(frame):
+    """ErrorRate_SE = mean(y_self) / mean(y_other) - 1.
+
+    y_self is this model's score of its own generated answer. y_other is the
+    mean score the other models assigned to that same answer. Items that no
+    other model scored are left out of the ratio.
+    """
+    if frame.empty:
+        return pd.DataFrame(columns=SELF_COLUMNS)
+    scored = frame[
+        (frame["bias"] == "self-enhancement")
+        & (frame["kind"] == "score")
+        & frame["parsed"]
+    ]
+    own = scored[scored["condition"] == "self"]
+    if own.empty:
+        return pd.DataFrame(columns=SELF_COLUMNS)
+
+    scores_by_answer = {}
+    for row in scored.itertuples(index=False):
+        key = _answer_key(row.generated_answer)
+        if key is None or _missing(row.rating):
+            continue
+        scores_by_answer.setdefault(key, []).append((row.model, float(row.rating)))
+
+    rows = []
+    for model, group in own.groupby("model", sort=True):
+        ratings = [float(rating) for rating in group["rating"] if not _missing(rating)]
+        paired_self = []
+        paired_other = []
+        judges = set()
+        for row in group.itertuples(index=False):
+            key = _answer_key(row.generated_answer)
+            if key is None or _missing(row.rating):
+                continue
+            other, used = _other_judge_scores(key, model, scores_by_answer)
+            if other is None:
+                continue
+            paired_self.append(float(row.rating))
+            paired_other.append(other)
+            judges.update(used)
+        n = len(paired_self)
+        if n == 0:
+            mean_self = float(sum(ratings) / len(ratings)) if ratings else float("nan")
+            mean_other = float("nan")
+            error_rate = float("nan")
+            item_ratio = float("nan")
+        else:
+            mean_self = sum(paired_self) / n
+            mean_other = sum(paired_other) / n
+            error_rate = (
+                float("nan") if mean_other == 0 else mean_self / mean_other - 1
+            )
+            ratios = [
+                left / right
+                for left, right in zip(paired_self, paired_other)
+                if right != 0
+            ]
+            item_ratio = sum(ratios) / len(ratios) if ratios else float("nan")
+        rows.append(
+            {
+                "model": model,
+                "n_self": len(ratings),
+                "n": n,
+                "n_other_judges": len(judges),
+                "mean_self": mean_self,
+                "mean_other": mean_other,
+                "error_rate_se": error_rate,
+                "mean_item_ratio": item_ratio,
+            }
+        )
+    if not rows:
+        return pd.DataFrame(columns=SELF_COLUMNS)
+    return pd.DataFrame(rows)[SELF_COLUMNS]
 
 
 def write_table(frame, path):
@@ -591,6 +705,26 @@ def plot_refinement(refinement, out_dir):
     plt.close(fig)
 
 
+def plot_self_enhancement(self_enhancement, out_dir):
+    if self_enhancement.empty or self_enhancement["error_rate_se"].isna().all():
+        return
+    fig, ax = plt.subplots(figsize=(max(6, 1.2 * len(self_enhancement) + 2), 4.5))
+    sns.barplot(
+        data=self_enhancement,
+        x="model",
+        y="error_rate_se",
+        color="#3b6ea5",
+        ax=ax,
+    )
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_ylabel("ErrorRate_SE")
+    ax.set_xlabel("")
+    ax.set_title("Self-enhancement error rate")
+    fig.tight_layout()
+    fig.savefig(out_dir / "self_enhancement.png", dpi=150)
+    plt.close(fig)
+
+
 def print_rr_summary(robust, consistency, summary):
     if robust.empty:
         print("No pairwise results to summarize.")
@@ -623,6 +757,7 @@ def run(results_dir, out_dir, models=None, biases=None):
     per_bias = bias_summary(robust, consistency)
     cot = cot_metrics(frame)
     refinement = refinement_metrics(frame)
+    self_enhancement = self_enhancement_metrics(frame)
 
     write_table(summary, out_dir / "parse_summary.csv")
     write_table(robust, out_dir / "robustness.csv")
@@ -630,6 +765,7 @@ def run(results_dir, out_dir, models=None, biases=None):
     write_table(per_bias, out_dir / "bias_summary.csv")
     write_table(cot, out_dir / "cot.csv")
     write_table(refinement, out_dir / "refinement.csv")
+    write_table(self_enhancement, out_dir / "self_enhancement.csv")
 
     sns.set_theme(style="whitegrid", context="notebook")
     plot_rr_heatmap(robust, out_dir)
@@ -638,6 +774,7 @@ def run(results_dir, out_dir, models=None, biases=None):
     plot_rr_bars(robust, out_dir)
     plot_cot(cot, out_dir)
     plot_refinement(refinement, out_dir)
+    plot_self_enhancement(self_enhancement, out_dir)
 
     print_rr_summary(robust, consistency, per_bias)
     if cot.empty:
@@ -652,14 +789,28 @@ def run(results_dir, out_dir, models=None, biases=None):
         print(
             refinement.to_string(index=False, float_format=lambda value: f"{value:.3f}")
         )
+    if self_enhancement.empty:
+        print("\nNo self-enhancement results; self_enhancement.csv is empty.")
+    else:
+        print("\nSelf-enhancement:")
+        print(
+            self_enhancement.to_string(
+                index=False, float_format=lambda value: f"{value:.3f}"
+            )
+        )
+        if self_enhancement["error_rate_se"].isna().all():
+            print(
+                "ErrorRate_SE is undefined: no other model scored the same "
+                "generated answer."
+            )
     print(f"\nWrote tables and charts to {out_dir}")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Compute robustness, consistency, accuracy, CoT AIR, and refinement "
-            "error rate."
+            "Compute robustness, consistency, accuracy, CoT AIR, refinement "
+            "error rate, and self-enhancement error rate."
         ),
     )
     parser.add_argument(

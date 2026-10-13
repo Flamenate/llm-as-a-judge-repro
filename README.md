@@ -41,4 +41,30 @@ python analyze.py
 python analyze.py --models qwen3:4b --biases position authority
 ```
 
-Writes CSV tables and PNG charts to `analysis/`.
+Writes CSV tables and PNG charts to `analysis/`. `python analysis/figures_fr.py` writes the French charts used in the presentation to `analysis/fr/`.
+
+## Presentation
+
+The slides are read from `presentation/presentation_fr.md` each time the page loads. Serve the repository root, then open the audience view:
+
+```bash
+python -m http.server 8000
+```
+
+`http://localhost:8000/presentation/web/`
+
+Press `P` (or the screen button, bottom right) to open the presenter view. It shows the speech, the current slide, a timer and the slide number, and stays in sync with the audience window: either window can drive the other. Libraries and fonts are in `presentation/web/vendor/`, so no network is needed.
+
+| Key | Action |
+| --- | --- |
+| `→` `↓` `Space` `Enter` `PageDown` | Next slide |
+| `←` `↑` `Backspace` `PageUp` | Previous slide |
+| `Home` / `End` | First / last slide |
+| number then `Enter` | Go to that slide |
+| `F` | Full screen (audience view) |
+| `P` | Open the presenter view (audience view) |
+| `B` | Black screen |
+| `T` | Pause or resume the timer (presenter view) |
+| `+` / `-` | Speech text size (presenter view) |
+
+With the mouse, click the slide to go forward (the left quarter goes back), use the buttons that appear when the mouse moves, or click a segment of the progress bar at the top.

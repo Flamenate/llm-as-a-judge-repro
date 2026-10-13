@@ -26,4 +26,4 @@ qwen3:4b,diversity,0,0,,,
 qwen3:4b,fallacy,0,0,,,
 qwen3:4b,position,0,0,,,
 qwen3:4b,sentiment,75,1,0.973333,0.907883,0.992656
-qwen3:4b,verbosity,0,0,,,
+qwen3:4b,verbosity,0,0

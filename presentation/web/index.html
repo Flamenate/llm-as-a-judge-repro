@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Justice or Prejudice? — Reproductibilité</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="vendor/marked.min.js"></script>
+    <script src="vendor/mermaid.min.js"></script>
+    <script type="module" src="js/main.js"></script>
+  </head>
+  <body class="audience">
+    <div id="progress" aria-label="Progression"></div>
+    <main id="viewport">
+      <div id="stage"></div>
+    </main>
+    <div id="controls" aria-label="Commandes">
+      <button type="button" data-action="prev" title="Précédente (←)" aria-label="Diapositive précédente">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <button type="button" data-action="next" title="Suivante (→)" aria-label="Diapositive suivante">
+        <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+      <span class="divider"></span>
+      <button type="button" data-action="presenter" title="Vue présentateur (P)" aria-label="Ouvrir la vue présentateur">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg>
+      </button>
+      <button type="button" data-action="fullscreen" title="Plein écran (F)" aria-label="Plein écran">
+        <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+      </button>
+    </div>
+    <div id="blackout"></div>
+    <div id="status">Chargement de la présentation…</div>
+  </body>
+</html>

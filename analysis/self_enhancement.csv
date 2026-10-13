@@ -1,0 +1,4 @@
+model,n_self,n,n_other_judges,mean_self,mean_other,error_rate_se,mean_item_ratio
+deepseek-r1:7b,352,351,2,7.418803,5.598291,0.325191,1.610510
+gemma4:e4b,150,150,2,7.913333,7.090000,0.116126,1.159189
+qwen3:4b,164,164,2,6.987805,6.911585,0.011028,1.043938

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vue présentateur</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="vendor/marked.min.js"></script>
+    <script type="module" src="js/presenter.js"></script>
+  </head>
+  <body class="presenter-view">
+    <header class="presenter-bar">
+      <span class="label">Temps écoulé</span>
+      <span class="timer" id="timer">00:00</span>
+      <button type="button" class="icon-button" id="timer-toggle" title="Pause / reprise" aria-label="Pause ou reprise du chronomètre">
+        <svg viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></svg>
+      </button>
+      <button type="button" class="icon-button" id="timer-reset" title="Remettre à zéro" aria-label="Remettre le chronomètre à zéro">
+        <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v5h5"/></svg>
+      </button>
+      <span class="clock" id="clock">--:--</span>
+    </header>
+    <main class="presenter-main">
+      <section class="presenter-left">
+        <div class="miniature">
+          <iframe id="miniature" title="Diapositive en cours" tabindex="-1"></iframe>
+        </div>
+        <div class="presenter-nav">
+          <span class="counter" id="counter">– <small>/ –</small></span>
+          <span class="spacer"></span>
+          <button type="button" class="icon-button" id="prev" title="Précédente (←)" aria-label="Diapositive précédente">
+            <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+          </button>
+          <button type="button" class="icon-button" id="next" title="Suivante (→)" aria-label="Diapositive suivante">
+            <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+        <p class="presenter-hint">
+          ← / → : naviguer · numéro + Entrée : aller à la diapositive · B : écran noir · T : pause du chronomètre ·
+          + / − : taille du texte
+        </p>
+      </section>
+      <section class="presenter-right">
+        <h1 class="presenter-title" id="title"></h1>
+        <div class="speech" id="speech">Chargement…</div>
+        <div class="visual-notes" id="notes"></div>
+      </section>
+    </main>
+  </body>
+</html>

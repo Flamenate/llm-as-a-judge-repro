@@ -35,6 +35,11 @@ deepseek-r1:7b,position,order_ba,439,435,4
 deepseek-r1:7b,refinement,original,150,150,0
 deepseek-r1:7b,refinement,refined,150,150,0
 deepseek-r1:7b,refinement,refined_given_history,150,150,0
+deepseek-r1:7b,self-enhancement,answer1,352,351,1
+deepseek-r1:7b,self-enhancement,answer2,352,348,4
+deepseek-r1:7b,self-enhancement,other_gemma4_e4b,150,149,1
+deepseek-r1:7b,self-enhancement,other_qwen3_4b,166,165,1
+deepseek-r1:7b,self-enhancement,self,352,352,0
 deepseek-r1:7b,sentiment,angry_on_better,149,148,1
 deepseek-r1:7b,sentiment,angry_on_worse,149,149,0
 deepseek-r1:7b,sentiment,baseline,150,150,0
@@ -84,6 +89,11 @@ gemma4:e4b,position,order_ba,150,150,0
 gemma4:e4b,refinement,original,150,150,0
 gemma4:e4b,refinement,refined,150,150,0
 gemma4:e4b,refinement,refined_given_history,150,149,1
+gemma4:e4b,self-enhancement,answer1,150,150,0
+gemma4:e4b,self-enhancement,answer2,150,150,0
+gemma4:e4b,self-enhancement,other_deepseek-r1_7b,352,351,1
+gemma4:e4b,self-enhancement,other_qwen3_4b,166,161,5
+gemma4:e4b,self-enhancement,self,150,150,0
 gemma4:e4b,sentiment,angry_on_better,149,149,0
 gemma4:e4b,sentiment,angry_on_worse,149,149,0
 gemma4:e4b,sentiment,baseline,150,150,0
@@ -128,7 +138,13 @@ qwen3:4b,position,order_ab,439,432,7
 qwen3:4b,position,order_ba,439,435,4
 qwen3:4b,refinement,original,150,150,0
 qwen3:4b,refinement,refined,150,150,0
+qwen3:4b,refinement,refined_given_history,150,150,0
 qwen3:4b,refinement,refined_with_history,150,150,0
+qwen3:4b,self-enhancement,answer1,166,166,0
+qwen3:4b,self-enhancement,answer2,166,164,2
+qwen3:4b,self-enhancement,other_deepseek-r1_7b,352,351,1
+qwen3:4b,self-enhancement,other_gemma4_e4b,150,144,6
+qwen3:4b,self-enhancement,self,166,164,2
 qwen3:4b,sentiment,angry_on_better,149,149,0
 qwen3:4b,sentiment,angry_on_worse,149,149,0
 qwen3:4b,sentiment,baseline,150,150,0
