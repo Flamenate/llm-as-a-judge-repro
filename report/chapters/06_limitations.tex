@@ -1,0 +1,83 @@
+\chapter{Limites du benchmark (Q4)}
+\label{chap-limitations}
+
+La quatrième question ne porte plus sur nos juges, mais sur CALM lui-même. Un benchmark de biais peut en introduire. Nous séparons les limites de \emph{conception}, qui affecteraient n'importe quelle reproduction fidèle, et les \emph{incohérences} du texte, qui empêchent de reconstruire le protocole à partir du seul article.
+
+\section{Limites de conception}
+
+\paragraph{La réponse correcte est toujours en position A.}
+Sur tout le jeu d'alignement, la réponse préférée par les humains est en A, la fausse en B. Or le biais de position est, chez nous comme dans l'article, l'un des plus forts, et il s'exprime surtout comme une adhésion à A (\cref{sec-position}). Toutes les exactitudes d'alignement --- bandwagon, autorité, distraction, diversité, compassion-fade, CoT --- sont donc contaminées : un juge qui aime A a l'air plus compétent, qu'il juge le contenu ou la case. Un protocole contrebalancé, où la réponse correcte est en A une fois sur deux, est le minimum pour isoler ces effets.
+
+\paragraph{Perturbations à sens unique.}
+Plusieurs injections ne touchent que l'une des deux réponses.
+\begin{itemize}[leftmargin=1.6em]
+  \item \textbf{Diversité.} L'identité est attribuée à A uniquement. On peut mesurer une \emph{discrimination} (le juge pénalise A), jamais un \emph{favoritisme} (le juge favoriserait B si B était minorisé).
+  \item \textbf{Fallacy.} Seule la réponse de référence est réécrite. On ne sait pas si le juge détecterait une fallacy collée à la réponse dégradée.
+  \item \textbf{Bandwagon.} La majorité est toujours annoncée pour B, la fausse réponse. On ne mesure pas l'effet d'une majorité qui aurait raison.
+  \item \textbf{Autorité et verbosité.} La source inventée et le rallongement touchent la moins bonne réponse. Une fausse source sur la réponse correcte, ou un rallongement de la référence, n'est pas testé dans le protocole principal.
+\end{itemize}
+Ces choix simplifient l'interprétation lorsqu'ils sont explicites. Ils réduisent aussi, chacun, le biais à une seule de ses deux directions.
+
+\paragraph{Le compassion-fade est mal nommé.}
+En psychologie, la \emph{compassion fade}~\cite{vastfjall2014compassion} désigne la baisse de compassion lorsque le nombre de victimes augmente. CALM mesure un effet de \emph{marque} : le juge réagit au nom GPT-4 ou Llama. Le phénomène est réel (Gemma et Qwen le montrent) ; le nom prête à confusion et oriente mal les comparaisons avec la littérature.
+
+\paragraph{Le prompt demande déjà d'éviter les biais testés.}
+Le gabarit de comparaison par paires, repris de Zheng et al.\ \cite{zheng2023mtbench}, contient les phrases : « Avoid any position biases », « Do not allow the length of the responses to influence your evaluation », « Do not favor certain names of the assistants » (annexe~\ref{chap-prompts}). On mesure donc la robustesse d'un juge \emph{déjà prévenu}. C'est une limite conservatrice --- les RR sont probablement plus élevés que sans l'avertissement --- mais elle n'est pas discutée dans l'article, et elle n'est pas retirée pour les biais de position, de verbosité et de compassion-fade, précisément ceux que le prompt dénonce.
+
+\paragraph{Vérité terrain fragile.}
+Les paires d'alignement viennent de jeux DPO. Une préférence humaine n'est pas une vérité : elle est bruitée, parfois contradictoire, souvent contextuelle. Un juge qui « se trompe » peut être en désaccord avec une étiquette discutable. Sur le factuel, les deux réponses sont générées par GPT-4-Turbo ; la « dégradée » reste correcte. L'exactitude n'y mesure pas une erreur factuelle, seulement un choix de style.
+
+\paragraph{Une seule exécution, une température « pour la reproductibilité ».}
+Tout le papier repose sur un seul passage à température~$0{,}7$. L'article justifie cette température par la reproductibilité. Une température nulle serait plus reproductible encore ; $0{,}7$ introduit du bruit, que le CR mesure, mais qu'une seule graine ne permet pas de séparer d'un biais. Il n'y a pas de test statistique.
+
+\section{Incohérences de l'article}
+
+Prises une à une, les observations qui suivent sont mineures. Ensemble, elles montrent qu'on ne peut pas reproduire CALM à partir du seul texte : il faut le dépôt, et même alors il reste des choix.
+
+\subsection{Données}
+
+\begin{itemize}[leftmargin=1.6em]
+  \item \textbf{Effectifs.} Le texte et la table~2 annoncent souvent 500 items pour le sentiment et le raffinement ; les fichiers publiés en contiennent 150. Le bandwagon et la diversité sont parfois décrits sur 150 items, parfois sur l'alignement complet (439).
+  \item \textbf{Jeux utilisés.} La table~2 et l'annexe~C ne s'accordent pas sur le corpus du CoT et de l'autorité (factuel ou alignement). Notre reproduction suit les fichiers du dépôt, pas le PDF.
+  \item \textbf{Citations d'autorité.} Il manque des champs de citation dans une partie des items publiés ; \texttt{judge.py} saute alors la condition et continue.
+\end{itemize}
+
+\subsection{Prompts}
+
+\begin{itemize}[leftmargin=1.6em]
+  \item \textbf{Lieu de l'injection.} Le texte présente le bandwagon, la distraction et la diversité comme des modifications du prompt \emph{système}. Les gabarits publiés (et ceux de \texttt{promptTemplate.py}) placent la phrase \emph{après} les deux réponses.
+  \item \textbf{CoT.} Le prompt de la figure~18 de l'article diffère de celui du dépôt (notre \texttt{CotPrompt}). Nous suivons le dépôt.
+  \item \textbf{Notation.} La figure~33 annonce une réponse de référence qui n'est pas fournie dans le gabarit correspondant. Notre prompt de notation (\texttt{get\_score}) n'inclut une référence que pour le self-enhancement, conformément au fichier officiel \texttt{self\_enhancement\_bias\_prompt}.
+\end{itemize}
+
+\subsection{Métriques}
+
+\begin{itemize}[leftmargin=1.6em]
+  \item \textbf{Fallacy.} Un RR élevé est présenté comme un bon score (figure~1, table~4), alors que garder A après une réécriture chaotique, c'est précisément le biais (\cref{sec-fallacy}).
+  \item \textbf{$\ErrSE$.} L'article écrit $\ErrSE = \bar{s}_{\mathrm{self}} / \bar{s}_{\mathrm{other}} - 1$, mais ne précise pas si $\bar{s}_{\mathrm{other}}$ moyenne les notes que \emph{les autres juges} donnent à la réponse du modèle, ou les notes que \emph{ce juge} donne aux autres. Nous adoptons la première lecture, qui est celle d'un biais d'auto-valorisation, et celle que notre protocole de notation croisée opérationnalise.
+  \item \textbf{BIS.} La légende de la table~7 parle de « différence entre RR et CR » et dit qu'un BIS plus \emph{bas} indique moins d'impact. Les chiffres publiés correspondent à $\CR - \RR$ (positifs lorsque le juge est sensible). Nous suivons les chiffres, pas la phrase.
+\end{itemize}
+
+\subsection{Rédaction}
+
+\begin{itemize}[leftmargin=1.6em]
+  \item \textbf{Légendes.} Les figures~21 et~28 portent des légendes qui ne correspondent pas au contenu affiché. La figure~8 parle de « trois émotions » alors que le protocole en compte quatre (joie, tristesse, colère, peur).
+  \item \textbf{Abréviations.} Les sigles \emph{h.c} et \emph{h.r} apparaissent dans des tableaux sans définition.
+  \item \textbf{Dates d'accès.} La table~11 indique un accès « 2024.1 » pour Qwen2, format non standard, qui ne permet pas de figer le point de contrôle.
+\end{itemize}
+
+Aucune de ces incohérences ne « ruine » l'article. Chacune force le reproducteur à trancher sans filet. Notre règle a été : \emph{le dépôt d'abord, le PDF ensuite, et l'écart documenté} (\cref{sec-deviations}).
+
+\section{Propositions pour un benchmark corrigé}
+
+Ces propositions n'ont pas été testées ; elles indiquent seulement ce que nous changerions avant une seconde campagne.
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Contrebalancer les positions.} La réponse correcte en A une fois sur deux, en B l'autre fois, et rapporter le RR et l'exactitude conditionnellement à la position.
+  \item \textbf{Perturber dans les deux sens.} Identité sur A \emph{et} sur B ; majorité pour A \emph{et} pour B ; fausse source sur les deux réponses ; fallacy collée à chacune.
+  \item \textbf{Remplacer le RR du fallacy} par l'exactitude contre la vérité « la réponse absurde ne doit pas gagner », et cesser de présenter un RR élevé comme une robustesse.
+  \item \textbf{Renommer le compassion-fade} en biais de marque, ou en biais de nom de modèle.
+  \item \textbf{Publier les verdicts bruts}, la graine, la fraction du CR, et un gabarit unique par condition, identique au PDF.
+  \item \textbf{Répéter} chaque condition au moins deux fois, publier un intervalle, et justifier la température autrement que par la reproductibilité.
+  \item \textbf{Retirer, ou factoriser, les consignes} du prompt qui interdisent déjà la position, la longueur et les noms, afin de mesurer le biais brut et le biais « malgré l'avertissement » séparément.
+\end{enumerate}

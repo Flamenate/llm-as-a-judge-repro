@@ -6,7 +6,9 @@ Usage:
     python analyze.py --models qwen3:4b --biases fallacy position
 
 Reads results/<model>__<bias>.json files written by judge.py. Writes CSV
-tables and PNG charts under analysis/.
+tables and PNG charts under analysis/. Charts have French labels for the
+presentation; where the paper reports the same metric, its six judges are
+drawn as a box plot and our models as points.
 
 For each pairwise bias, D is the set of items whose unperturbed reference
 judgment y parsed. Robustness Rate is I(y == y_hat) over D, and Consistency
@@ -22,6 +24,9 @@ files from before that prompt existed have no Err_RA.
 Self-enhancement ErrorRate_SE is y_self / y_other - 1. y_self is the score
 a model gives its own generated answer. y_other is the mean score other
 models give that same answer.
+
+position.csv splits the position pairs into: same answer in both orders,
+same slot A in both orders, same slot B in both orders, and other.
 """
 
 import argparse
@@ -92,6 +97,7 @@ SELF_COLUMNS = [
     "mean_item_ratio",
 ]
 PARSE_COLUMNS = ["model", "bias", "condition", "total", "parsed", "failed"]
+POSITION_COLUMNS = ["model", "n", "consistent", "always_a", "always_b", "other"]
 
 VERDICTS = {"A", "B", "C"}
 RATING_MIN = 1
@@ -550,179 +556,528 @@ def self_enhancement_metrics(frame):
     return pd.DataFrame(rows)[SELF_COLUMNS]
 
 
+def position_breakdown(frame):
+    """Classify each item by the slots chosen in the A-B and B-A orders.
+
+    consistent: the same answer wins in both orders. always_a / always_b: the
+    same letter wins in both orders, so the answer changed with its slot.
+    other: a tie or a verdict that failed to parse.
+    """
+    if frame.empty:
+        return pd.DataFrame(columns=POSITION_COLUMNS)
+    rows = []
+    position = frame[(frame["bias"] == "position") & (frame["kind"] == "pairwise")]
+    for model, group in position.groupby("model", sort=True):
+        forward = _by_index(group, "order_ab")
+        swapped = _by_index(group, "order_ba")
+        shared = forward.index.intersection(swapped.index)
+        counts = {"consistent": 0, "always_a": 0, "always_b": 0, "other": 0}
+        for index in shared:
+            first = forward.at[index, "verdict"]
+            second = swapped.at[index, "verdict"]
+            if first not in {"A", "B"} or second not in {"A", "B"}:
+                counts["other"] += 1
+            elif first != second:
+                counts["consistent"] += 1
+            elif first == "A":
+                counts["always_a"] += 1
+            else:
+                counts["always_b"] += 1
+        total = len(shared)
+        rows.append(
+            {
+                "model": model,
+                "n": total,
+                **{key: value / total if total else float("nan") for key, value in counts.items()},
+            }
+        )
+    return pd.DataFrame(rows, columns=POSITION_COLUMNS)
+
+
 def write_table(frame, path):
     frame.to_csv(path, index=False, float_format="%.6f")
 
 
-def _column_order(labels):
-    def sort_key(label):
-        bias, _, condition = label.partition("/")
-        reference_first = 0 if condition == reference_condition(bias) else 1
-        return (bias, reference_first, condition)
+# ---------------------------------------------------------------------------
+# Figures (French labels, used by the presentation)
+# ---------------------------------------------------------------------------
 
-    return sorted(set(labels), key=sort_key)
+MODEL_LABELS = {
+    "deepseek-r1:7b": "DeepSeek-R1 7B",
+    "gemma4:e4b": "Gemma4 e4B",
+    "qwen3:4b": "Qwen3 4B",
+}
+MODEL_ORDER = list(MODEL_LABELS.values())
+PALETTE = dict(zip(MODEL_ORDER, ("#4c72b0", "#dd8452", "#55a868")))
+POINT_OFFSETS = dict(zip(MODEL_ORDER, (-0.18, 0.0, 0.18)))
+PAPER_BOX_COLOR = "#d9dee8"
+PAPER_LABEL = "Article (6 juges)"
+
+BIAS_LABELS = {
+    "position": "Position",
+    "verbosity": "Verbosité",
+    "compassion": "Compassion-fade",
+    "bandwagon": "Bandwagon",
+    "distraction": "Distraction",
+    "authority": "Autorité",
+    "sentiment": "Sentiment",
+    "diversity": "Diversité",
+    "cot": "CoT",
+}
+
+# Ye et al. (ICLR 2025). Every list follows the paper's judge order:
+# ChatGPT, GPT-4-Turbo, GPT-4o, GLM-4, Claude-3.5, Qwen2.
+PAPER_RR = {  # Table 4
+    "verbosity": [0.900, 0.915, 0.977, 0.887, 0.952, 0.884],
+    "sentiment": [0.804, 0.653, 0.699, 0.679, 0.660, 0.651],
+    "position": [0.566, 0.818, 0.776, 0.781, 0.832, 0.760],
+    "compassion": [0.862, 0.858, 0.868, 0.835, 0.875, 0.877],
+    "bandwagon": [0.688, 0.638, 0.791, 0.690, 0.610, 0.710],
+    "authority": [0.662, 0.846, 0.787, 0.796, 0.865, 0.779],
+    "distraction": [0.713, 0.729, 0.790, 0.814, 0.878, 0.785],
+    "diversity": [0.679, 0.855, 0.814, 0.788, 0.914, 0.826],
+}
+PAPER_BIS = {  # Table 7
+    "verbosity": [0.098, 0.075, 0.021, 0.083, 0.047, 0.110],
+    "sentiment": [0.194, 0.337, 0.299, 0.291, 0.339, 0.343],
+    "position": [0.340, 0.038, 0.149, 0.103, 0.083, 0.144],
+    "compassion": [0.044, -0.002, 0.057, 0.049, 0.040, 0.027],
+    "bandwagon": [0.218, 0.218, 0.134, 0.194, 0.305, 0.194],
+    "authority": [0.244, 0.010, 0.138, 0.088, 0.050, 0.125],
+    "distraction": [0.193, 0.127, 0.135, 0.070, 0.037, 0.119],
+    "diversity": [0.227, 0.001, 0.111, 0.096, 0.001, 0.078],
+}
+PAPER_CR = {  # Table 4: CR_FR and CR_AL
+    "fact": [0.998, 0.990, 0.998, 0.970, 0.999, 0.994],
+    "alignment": [0.906, 0.856, 0.925, 0.884, 0.915, 0.904],
+}
+PAPER_CONDITION_RR = {  # Table 8
+    ("bandwagon", "bandwagon_60"): [0.680, 0.635, 0.773, 0.703, 0.563, 0.711],
+    ("bandwagon", "bandwagon_70"): [0.667, 0.630, 0.787, 0.676, 0.613, 0.711],
+    ("bandwagon", "bandwagon_80"): [0.707, 0.662, 0.805, 0.664, 0.638, 0.698],
+    ("bandwagon", "bandwagon_90"): [0.699, 0.623, 0.800, 0.716, 0.627, 0.718],
+    ("authority", "book"): [0.628, 0.841, 0.800, 0.765, 0.856, 0.785],
+    ("authority", "quote"): [0.660, 0.841, 0.747, 0.758, 0.856, 0.745],
+    ("authority", "url"): [0.700, 0.855, 0.813, 0.866, 0.884, 0.805],
+    ("sentiment", "cheerful_on_better"): [0.803, 0.682, 0.727, 0.770, 0.609, 0.726],
+    ("sentiment", "cheerful_on_worse"): [0.910, 0.888, 0.970, 0.905, 0.976, 0.871],
+    ("sentiment", "sad_on_better"): [0.659, 0.271, 0.343, 0.306, 0.259, 0.307],
+    ("sentiment", "sad_on_worse"): [0.916, 0.920, 0.983, 0.907, 0.970, 0.929],
+    ("sentiment", "angry_on_better"): [0.639, 0.366, 0.243, 0.380, 0.256, 0.283],
+    ("sentiment", "angry_on_worse"): [0.946, 0.921, 0.987, 0.950, 0.973, 0.926],
+    ("sentiment", "fear_on_better"): [0.639, 0.254, 0.355, 0.271, 0.260, 0.238],
+    ("sentiment", "fear_on_worse"): [0.923, 0.921, 0.987, 0.943, 0.973, 0.926],
+}
+PAPER_AIR = [3.8, 0.8, 5.2, 7.0, 3.5, 5.1]  # Table 4, in percent
+PAPER_ERR_RA = [-5.48, 1.69, -3.22, 1.19, 2.22, 1.35]  # Table 5, in percent
+PAPER_ERR_SE = [-16.64, 9.40, 8.18, 3.63, 5.39, 8.99]  # Table 5, in percent
+
+FACT_BIASES = ("verbosity", "sentiment")
+ALIGNMENT_BIASES = ("position", "compassion", "bandwagon", "authority", "distraction", "diversity")
+
+# Wall-clock hours per model on one Jetson Orin Nano.
+RUN_HOURS = {
+    "Self-enhancement": 10,
+    "Diversité": 8,
+    "Bandwagon": 6,
+    "Compassion-fade": 4,
+    "Distraction": 4,
+    "Sentiment": 3.5,
+    "Verbosité": 3,
+    "Position": 2.5,
+    "CoT": 2.5,
+    "Autorité": 1.75,
+    "Raffinement": 1,
+}
+
+# Sized for the presentation's visuals column (about 4:3), so that 15 pt
+# text stays readable once the image is scaled into the slide.
+COLUMN_FIGURE = (8.5, 7)
+WIDE_FIGURE = (9.5, 7.5)
+
+FIGURE_STYLE = {
+    "font.size": 15,
+    "axes.titlesize": 19,
+    "axes.titleweight": "bold",
+    "axes.labelsize": 17,
+    "xtick.labelsize": 15,
+    "ytick.labelsize": 15,
+    "legend.fontsize": 15,
+    "legend.title_fontsize": 15,
+}
 
 
-def _heatmap(table, value, path, title, vmin=0, vmax=1):
-    if table.empty:
-        return
-    pivot = table.pivot(index="model", columns="column", values=value)
-    pivot = pivot.reindex(columns=_column_order(pivot.columns))
-    labels = pivot.map(lambda cell: "" if pd.isna(cell) else f"{cell:.2f}")
-    width = max(8, 0.85 * len(pivot.columns) + 3)
-    height = max(3.5, 0.7 * len(pivot.index) + 2)
-    fig, ax = plt.subplots(figsize=(width, height))
-    sns.heatmap(
-        pivot,
-        annot=labels,
-        fmt="",
-        vmin=vmin,
-        vmax=vmax,
-        cmap="viridis",
-        linewidths=0.4,
-        ax=ax,
-    )
-    ax.set_title(title)
-    ax.set_xlabel("")
-    ax.set_ylabel("")
+def _labelled(frame):
+    frame = frame.copy()
+    frame["label"] = frame["model"].map(MODEL_LABELS)
+    return frame[frame["label"].notna()]
+
+
+def _save(fig, path):
     fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    fig.savefig(path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
 
-def _interpretable_rr(robust):
-    """Fallacy's expected answer flips under the perturbation, so its RR is noise."""
-    return robust[robust["bias"] != "fallacy"]
+def _paper_and_points(ax, categories, paper, ours, width=0.55):
+    """Box plot of the paper's six judges per category, our models as points.
 
-
-def plot_rr_heatmap(robust, out_dir):
-    table = _interpretable_rr(robust).dropna(subset=["rr"]).copy()
-    table["column"] = table["bias"] + "/" + table["condition"]
-    _heatmap(
-        table,
-        "rr",
-        out_dir / "rr_heatmap.png",
-        "Robustness rate",
+    paper: list of value lists, one per category. ours: {model label: values}.
+    """
+    positions = list(range(len(categories)))
+    ax.boxplot(
+        paper,
+        positions=positions,
+        widths=width,
+        patch_artist=True,
+        zorder=1,
+        flierprops={"marker": "D", "markersize": 7, "markerfacecolor": "#8a94a8", "markeredgecolor": "#8a94a8"},
+        boxprops={"facecolor": PAPER_BOX_COLOR, "edgecolor": "#8a94a8", "linewidth": 1.4},
+        medianprops={"color": "#5b6577", "linewidth": 2},
+        whiskerprops={"color": "#8a94a8", "linewidth": 1.4},
+        capprops={"color": "#8a94a8", "linewidth": 1.4},
     )
-
-
-def plot_cr_heatmap(consistency, out_dir):
-    table = consistency.dropna(subset=["cr"]).copy()
-    table["column"] = table["bias"]
-    _heatmap(
-        table,
-        "cr",
-        out_dir / "cr_heatmap.png",
-        "Consistency rate",
-    )
-
-
-def plot_accuracy_heatmap(robust, out_dir):
-    if robust.empty:
-        return
-    cells = []
-    for (model, bias), group in robust.groupby(["model", "bias"], sort=True):
-        best = group.sort_values(["n", "condition"], ascending=[False, True]).iloc[0]
-        cells.append(
-            {
-                "model": model,
-                "column": f"{bias}/{reference_condition(bias)}",
-                "accuracy": best["acc_baseline"],
-            }
+    for label in MODEL_ORDER:
+        values = ours.get(label)
+        if values is None:
+            continue
+        ax.scatter(
+            [p + POINT_OFFSETS[label] for p in positions],
+            values,
+            s=150,
+            color=PALETTE[label],
+            edgecolor="black",
+            linewidth=0.8,
+            zorder=3,
+            label=label,
         )
-        for _, row in group.iterrows():
-            cells.append(
-                {
-                    "model": model,
-                    "column": f"{bias}/{row['condition']}",
-                    "accuracy": row["acc_condition"],
-                }
+    ax.set_xticks(positions)
+    ax.set_xticklabels(categories)
+    ax.set_xlim(-0.6, len(categories) - 0.4)
+
+
+def _paper_handles(ax):
+    handles, labels = ax.get_legend_handles_labels()
+    handles.append(plt.Rectangle((0, 0), 1, 1, facecolor=PAPER_BOX_COLOR, edgecolor="#8a94a8"))
+    labels.append(PAPER_LABEL)
+    handles.append(
+        plt.Line2D([], [], marker="D", linestyle="", markersize=7, color="#8a94a8")
+    )
+    labels.append("Juge de l'article hors boîte")
+    return handles, labels
+
+
+def _legend_below(ax, ncol=3, offset=-0.12):
+    handles, labels = _paper_handles(ax)
+    ax.legend(
+        handles, labels, loc="upper center", bbox_to_anchor=(0.5, offset), ncol=ncol, frameon=False
+    )
+
+
+def _figure_legend(fig, ax, ncol=3, offset=-0.07):
+    handles, labels = _paper_handles(ax)
+    fig.legend(handles, labels, loc="upper center", ncol=ncol, frameon=False, bbox_to_anchor=(0.5, offset + 0.07))
+
+
+def _summary_values(summary, biases, column="rr"):
+    ours = {}
+    for label, group in _labelled(summary).groupby("label"):
+        values = group.set_index("bias")[column]
+        ours[label] = [values.get(bias, float("nan")) for bias in biases]
+    return ours
+
+
+def _tilt_labels(ax):
+    for label in ax.get_xticklabels():
+        label.set_rotation(30)
+        label.set_horizontalalignment("right")
+        label.set_rotation_mode("anchor")
+
+
+def plot_rr_vs_paper(summary, out_dir):
+    biases = list(PAPER_RR)
+    fig, ax = plt.subplots(figsize=WIDE_FIGURE)
+    _paper_and_points(
+        ax,
+        [BIAS_LABELS[bias] for bias in biases],
+        [PAPER_RR[bias] for bias in biases],
+        _summary_values(summary, biases),
+    )
+    _tilt_labels(ax)
+    ax.set_ylim(0.4, 1.0)
+    ax.set_ylabel("Taux de robustesse (RR)")
+    ax.set_title("RR : article vs. nos modèles")
+    _legend_below(ax, offset=-0.22)
+    _save(fig, out_dir / "rr_article_vs_nous.png")
+
+
+def plot_bis(summary, out_dir):
+    biases = list(PAPER_BIS)
+    table = summary.copy()
+    table["bis"] = table["cr"] - table["rr"]
+    fig, ax = plt.subplots(figsize=WIDE_FIGURE)
+    _paper_and_points(
+        ax,
+        [BIAS_LABELS[bias] for bias in biases],
+        [PAPER_BIS[bias] for bias in biases],
+        _summary_values(table, biases, "bis"),
+    )
+    _tilt_labels(ax)
+    ax.axhline(0, color="black", linewidth=1)
+    ax.set_ylabel("BIS = CR − RR")
+    ax.set_title("Effet du biais au-delà du bruit (BIS)")
+    _legend_below(ax, offset=-0.22)
+    _save(fig, out_dir / "bis.png")
+
+
+def plot_cr_vs_paper(consistency, out_dir):
+    groups = (
+        ("Questions factuelles\n(verbosité, sentiment)", FACT_BIASES, PAPER_CR["fact"]),
+        ("Préférences humaines\n(position, bandwagon, autorité…)", ALIGNMENT_BIASES, PAPER_CR["alignment"]),
+    )
+    ours = {}
+    for label, group in _labelled(consistency.dropna(subset=["cr"])).groupby("label"):
+        values = group.set_index("bias")["cr"]
+        ours[label] = [
+            float(values.reindex(list(biases)).dropna().mean()) for _, biases, _ in groups
+        ]
+    fig, ax = plt.subplots(figsize=COLUMN_FIGURE)
+    _paper_and_points(ax, [name for name, _, _ in groups], [paper for _, _, paper in groups], ours)
+    ax.set_ylim(0.5, 1.02)
+    ax.set_ylabel("Taux de cohérence (CR)")
+    ax.set_title("Le juge redonne-t-il le même verdict ?")
+    _legend_below(ax, ncol=2)
+    _save(fig, out_dir / "cr_article_vs_nous.png")
+
+
+def _condition_values(robust, bias, conditions):
+    ours = {}
+    rows = _labelled(robust[robust["bias"] == bias])
+    for label, group in rows.groupby("label"):
+        values = group.set_index("condition")["rr"]
+        ours[label] = [values.get(condition, float("nan")) for condition in conditions]
+    return ours
+
+
+def plot_sentiment(robust, out_dir):
+    tones = (("cheerful", "Joyeux"), ("sad", "Triste"), ("angry", "En colère"), ("fear", "Peur"))
+    fig, axes = plt.subplots(2, 1, figsize=(9, 9), sharey=True)
+    for ax, (suffix, title) in zip(
+        axes,
+        (
+            ("on_better", "Ton ajouté à la réponse de référence"),
+            ("on_worse", "Ton ajouté à la réponse dégradée"),
+        ),
+    ):
+        conditions = [f"{tone}_{suffix}" for tone, _ in tones]
+        _paper_and_points(
+            ax,
+            [name for _, name in tones],
+            [PAPER_CONDITION_RR[("sentiment", condition)] for condition in conditions],
+            _condition_values(robust, "sentiment", conditions),
+        )
+        ax.set_title(title)
+        ax.set_ylim(0, 1.05)
+        ax.set_ylabel("RR")
+    _figure_legend(fig, axes[0], ncol=3)
+    _save(fig, out_dir / "sentiment.png")
+
+
+def plot_bandwagon(robust, out_dir):
+    conditions = [f"bandwagon_{percent}" for percent in (60, 70, 80, 90)]
+    fig, ax = plt.subplots(figsize=COLUMN_FIGURE)
+    _paper_and_points(
+        ax,
+        ["60 %", "70 %", "80 %", "90 %"],
+        [PAPER_CONDITION_RR[("bandwagon", condition)] for condition in conditions],
+        _condition_values(robust, "bandwagon", conditions),
+    )
+    ax.set_ylim(0.5, 0.9)
+    ax.set_xlabel("Majorité annoncée pour la fausse réponse")
+    ax.set_ylabel("Taux de robustesse (RR)")
+    ax.set_title("Bandwagon : effet du pourcentage annoncé")
+    _legend_below(ax)
+    _save(fig, out_dir / "bandwagon.png")
+
+
+def plot_authority_distraction(robust, out_dir):
+    """Authority against the paper (top) and distraction on A vs. B (bottom)."""
+    fig, (top, bottom) = plt.subplots(2, 1, figsize=(9, 9.5))
+    conditions = ("book", "quote", "url")
+    _paper_and_points(
+        top,
+        ["Livre", "Citation célèbre", "URL"],
+        [PAPER_CONDITION_RR[("authority", condition)] for condition in conditions],
+        _condition_values(robust, "authority", conditions),
+    )
+    top.set_ylim(0.5, 1.0)
+    top.set_ylabel("RR")
+    top.set_title("Autorité : fausse source sur la fausse réponse")
+    handles, labels = _paper_handles(top)
+    top.legend(handles, labels, loc="center left", bbox_to_anchor=(1.01, 0.5), frameon=False)
+
+    rows = _labelled(robust[robust["bias"] == "distraction"]).copy()
+    rows["label"] = rows["label"].str.replace(" ", "\n", n=1)
+    rows["cible"] = rows["condition"].map(
+        {"distract_a": "Sur la réponse correcte (A)", "distract_b": "Sur la fausse réponse (B)"}
+    )
+    sns.barplot(
+        data=rows,
+        x="label",
+        y="rr",
+        hue="cible",
+        order=[label.replace(" ", "\n", 1) for label in MODEL_ORDER],
+        palette=["#4c72b0", "#c44e52"],
+        ax=bottom,
+    )
+    for container in bottom.containers:
+        bottom.bar_label(container, fmt="%.2f", fontsize=15)
+    bottom.set_ylim(0, 1.05)
+    bottom.set_xlabel("")
+    bottom.set_ylabel("RR")
+    bottom.set_title("Distraction : phrase hors sujet ajoutée")
+    bottom.legend(title="", loc="center left", bbox_to_anchor=(1.01, 0.5), frameon=False)
+    _save(fig, out_dir / "autorite_distraction.png")
+
+
+def plot_position(summary, breakdown, out_dir):
+    fig, (left, right) = plt.subplots(
+        1, 2, figsize=(10.5, 8), gridspec_kw={"width_ratios": [1, 1.7]}
+    )
+    rr = _summary_values(summary, ["position"])
+    cr = _summary_values(summary, ["position"], "cr")
+    _paper_and_points(left, ["Position"], [PAPER_RR["position"]], rr, width=0.45)
+    for label in MODEL_ORDER:
+        if label in cr:
+            left.scatter(
+                [POINT_OFFSETS[label]],
+                cr[label],
+                s=300,
+                marker="_",
+                linewidths=4,
+                color=PALETTE[label],
+                zorder=3,
             )
-    table = pd.DataFrame(cells).dropna(subset=["accuracy"])
-    _heatmap(
-        table,
-        "accuracy",
-        out_dir / "accuracy_heatmap.png",
-        "Accuracy against the expected answer",
+    left.scatter([], [], marker="_", s=300, linewidths=4, color="black", label="CR (même ordre répété)")
+    left.set_ylim(0.3, 1.0)
+    left.set_ylabel("Taux de robustesse (RR)")
+    left.set_title("RR")
+    handles, labels = _paper_handles(left)
+    left.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=1, frameon=False)
+
+    table = _labelled(breakdown).set_index("label").reindex(MODEL_ORDER).dropna(subset=["n"])
+    table.index = [label.replace(" ", "\n", 1) for label in table.index]
+    parts = (
+        ("consistent", "Même réponse dans les deux ordres", "#55a868"),
+        ("always_a", "Toujours la position A", "#4c72b0"),
+        ("always_b", "Toujours la position B", "#dd8452"),
+        ("other", "Égalité ou non analysé", "#b0b0b0"),
     )
+    bottom = [0.0] * len(table)
+    for column, name, color in parts:
+        values = list(table[column] * 100)
+        bars = right.bar(table.index, values, bottom=bottom, color=color, label=name, width=0.6)
+        for bar, value, base in zip(bars, values, bottom):
+            if value >= 6:
+                right.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    base + value / 2,
+                    f"{value:.0f} %",
+                    ha="center",
+                    va="center",
+                    fontsize=15,
+                    color="white",
+                    fontweight="bold",
+                )
+        bottom = [b + v for b, v in zip(bottom, values)]
+    right.set_ylim(0, 100)
+    right.set_ylabel("Part des paires (%)")
+    right.set_title("Après inversion de A et B")
+    right.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=1, frameon=False)
+    _save(fig, out_dir / "position.png")
 
 
-def plot_rr_bars(robust, out_dir):
-    robust = _interpretable_rr(robust)
-    if robust.empty:
-        return
-    for bias, group in robust.groupby("bias", sort=True):
-        fig, ax = plt.subplots(
-            figsize=(max(6, 1.4 * group["condition"].nunique() + 2), 4.5)
-        )
-        sns.barplot(data=group, x="condition", y="rr", hue="model", ax=ax)
-        ax.set_ylim(0, 1)
-        ax.set_ylabel("Robustness rate")
-        ax.set_xlabel("")
-        ax.set_title(f"Robustness rate: {bias}")
-        fig.tight_layout()
-        fig.savefig(out_dir / f"rr_{bias}.png", dpi=150)
-        plt.close(fig)
+def plot_other_biases(summary, out_dir):
+    biases = ("verbosity", "compassion", "diversity")
+    fig, ax = plt.subplots(figsize=COLUMN_FIGURE)
+    _paper_and_points(
+        ax,
+        [BIAS_LABELS[bias] for bias in biases],
+        [PAPER_RR[bias] for bias in biases],
+        _summary_values(summary, biases),
+    )
+    ax.set_ylim(0.5, 1.0)
+    ax.set_ylabel("Taux de robustesse (RR)")
+    ax.set_title("Verbosité, compassion-fade, diversité")
+    _legend_below(ax, ncol=2)
+    _save(fig, out_dir / "autres_biais.png")
 
 
 def plot_cot(cot, out_dir):
-    if cot.empty or cot["air"].isna().all():
+    if cot.empty:
         return
-    fig, ax = plt.subplots(figsize=(max(6, 1.2 * len(cot) + 2), 4.5))
-    sns.barplot(data=cot, x="model", y="air", color="#3b6ea5", ax=ax)
-    ax.axhline(0, color="black", linewidth=0.8)
-    ax.set_ylabel("Accuracy improvement rate (%)")
-    ax.set_xlabel("")
-    ax.set_title("Chain-of-thought accuracy improvement")
-    fig.tight_layout()
-    fig.savefig(out_dir / "cot_air.png", dpi=150)
-    plt.close(fig)
+    ours = {label: [value] for label, value in _labelled(cot).set_index("label")["air"].items()}
+    fig, ax = plt.subplots(figsize=(7, 7))
+    _paper_and_points(ax, ["Chain-of-thought"], [PAPER_AIR], ours, width=0.45)
+    ax.axhline(0, color="black", linewidth=1)
+    ax.set_ylabel("Gain de précision, AIR (%)")
+    ax.set_title("CoT : gain de précision")
+    handles, labels = _paper_handles(ax)
+    ax.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=2, frameon=False)
+    _save(fig, out_dir / "cot.png")
 
 
-def plot_refinement(refinement, out_dir):
-    if refinement.empty:
-        return
-    long = refinement.melt(
-        id_vars=["model"],
-        value_vars=["mean_original", "mean_refined", "mean_with_history"],
-        var_name="version",
-        value_name="score",
+def plot_scoring(refinement, self_enhancement, out_dir):
+    fig, axes = plt.subplots(1, 2, figsize=COLUMN_FIGURE)
+    panels = (
+        (axes[0], refinement, "error_rate_ra", PAPER_ERR_RA, "Raffinement (Err_RA)"),
+        (axes[1], self_enhancement, "error_rate_se", PAPER_ERR_SE, "Self-enhancement (Err_SE)"),
     )
-    long["version"] = long["version"].map(
-        {
-            "mean_original": "Original",
-            "mean_refined": "Refined",
-            "mean_with_history": "With history",
-        }
-    )
-    fig, ax = plt.subplots(figsize=(max(6, 1.6 * len(refinement) + 2), 4.5))
-    sns.barplot(data=long, x="model", y="score", hue="version", ax=ax)
-    ax.set_ylabel("Mean score")
-    ax.set_xlabel("")
-    ax.set_title("Refinement scores")
-    fig.tight_layout()
-    fig.savefig(out_dir / "refinement_scores.png", dpi=150)
-    plt.close(fig)
+    for ax, table, column, paper, title in panels:
+        ours = {}
+        if not table.empty:
+            ours = {
+                label: [value * 100]
+                for label, value in _labelled(table).set_index("label")[column].items()
+            }
+        _paper_and_points(ax, [title.split(" (")[0]], [paper], ours, width=0.45)
+        ax.axhline(0, color="black", linewidth=1)
+        ax.set_title(title.split(" (")[1].rstrip(")"))
+    axes[0].set_ylabel("Taux d'erreur (%)")
+    _figure_legend(fig, axes[0], ncol=2)
+    _save(fig, out_dir / "notation.png")
 
 
-def plot_self_enhancement(self_enhancement, out_dir):
-    if self_enhancement.empty or self_enhancement["error_rate_se"].isna().all():
-        return
-    fig, ax = plt.subplots(figsize=(max(6, 1.2 * len(self_enhancement) + 2), 4.5))
-    sns.barplot(
-        data=self_enhancement,
-        x="model",
-        y="error_rate_se",
-        color="#3b6ea5",
-        ax=ax,
-    )
-    ax.axhline(0, color="black", linewidth=0.8)
-    ax.set_ylabel("ErrorRate_SE")
-    ax.set_xlabel("")
-    ax.set_title("Self-enhancement error rate")
-    fig.tight_layout()
-    fig.savefig(out_dir / "self_enhancement.png", dpi=150)
-    plt.close(fig)
+def plot_run_hours(out_dir):
+    names = list(RUN_HOURS)[::-1]
+    hours = [RUN_HOURS[name] for name in names]
+    fig, ax = plt.subplots(figsize=COLUMN_FIGURE)
+    bars = ax.barh(names, hours, color="#1f3b6e")
+    for bar, value in zip(bars, hours):
+        whole = int(value)
+        minutes = round((value - whole) * 60)
+        text = f"{whole} h {minutes:02d}" if minutes else f"{whole} h"
+        ax.text(value + 0.15, bar.get_y() + bar.get_height() / 2, text, va="center", fontsize=15)
+    ax.set_xlim(0, max(hours) * 1.18)
+    ax.set_xlabel("Heures par modèle")
+    ax.set_title(f"Temps par biais (≈ {sum(hours):.0f} h par modèle)")
+    ax.grid(axis="y", visible=False)
+    _save(fig, out_dir / "durees.png")
+
+
+def plot_figures(summary, robust, consistency, cot, refinement, self_enhancement, breakdown, out_dir):
+    sns.set_theme(style="whitegrid", context="notebook", rc=FIGURE_STYLE)
+    plot_rr_vs_paper(summary, out_dir)
+    plot_bis(summary, out_dir)
+    plot_cr_vs_paper(consistency, out_dir)
+    plot_sentiment(robust, out_dir)
+    plot_bandwagon(robust, out_dir)
+    plot_authority_distraction(robust, out_dir)
+    plot_position(summary, breakdown, out_dir)
+    plot_other_biases(summary, out_dir)
+    plot_cot(cot, out_dir)
+    plot_scoring(refinement, self_enhancement, out_dir)
+    plot_run_hours(out_dir)
 
 
 def print_rr_summary(robust, consistency, summary):
@@ -758,6 +1113,7 @@ def run(results_dir, out_dir, models=None, biases=None):
     cot = cot_metrics(frame)
     refinement = refinement_metrics(frame)
     self_enhancement = self_enhancement_metrics(frame)
+    breakdown = position_breakdown(frame)
 
     write_table(summary, out_dir / "parse_summary.csv")
     write_table(robust, out_dir / "robustness.csv")
@@ -766,15 +1122,11 @@ def run(results_dir, out_dir, models=None, biases=None):
     write_table(cot, out_dir / "cot.csv")
     write_table(refinement, out_dir / "refinement.csv")
     write_table(self_enhancement, out_dir / "self_enhancement.csv")
+    write_table(breakdown, out_dir / "position.csv")
 
-    sns.set_theme(style="whitegrid", context="notebook")
-    plot_rr_heatmap(robust, out_dir)
-    plot_cr_heatmap(consistency, out_dir)
-    plot_accuracy_heatmap(robust, out_dir)
-    plot_rr_bars(robust, out_dir)
-    plot_cot(cot, out_dir)
-    plot_refinement(refinement, out_dir)
-    plot_self_enhancement(self_enhancement, out_dir)
+    plot_figures(
+        per_bias, robust, consistency, cot, refinement, self_enhancement, breakdown, out_dir
+    )
 
     print_rr_summary(robust, consistency, per_bias)
     if cot.empty:

@@ -41,7 +41,7 @@ python analyze.py
 python analyze.py --models qwen3:4b --biases position authority
 ```
 
-Writes CSV tables and PNG charts to `analysis/`. `python analysis/figures_fr.py` writes the French charts used in the presentation to `analysis/fr/`.
+Writes CSV tables and the presentation's French charts to `analysis/`. Where the paper reports the same metric, its six judges are drawn as a box plot and our models as points.
 
 ## Presentation
 

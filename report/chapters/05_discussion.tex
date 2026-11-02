@@ -1,0 +1,50 @@
+\chapter{Discussion}
+\label{chap-discussion}
+
+\section{Q1 --- Peut-on reproduire l'article à l'identique ?}
+
+Non. Deux obstacles, indépendants de notre volonté, l'interdisent.
+
+Le premier est \textbf{matériel}. Plusieurs juges de l'article ont été retirés des catalogues, ou n'existent plus sous la version testée (accès daté « 2024.1 » pour Qwen2, table~11 de l'article). Une reproduction à l'identique exigerait de relancer GPT-4o, Claude-3.5, GLM-4 et Qwen2-72B à température~$0{,}7$ sur les mêmes items. À raison d'environ 21~millions de tokens de sortie par juge, le coût dépasse le cadre de cette étude.
+
+Le second est \textbf{documentaire}. L'article ne publie pas les verdicts bruts, seulement des moyennes. Le texte et les annexes se contredisent sur les jeux de données, les effectifs et certains gabarits (\cref{chap-limitations}). On ne peut pas, à partir du seul PDF, reconstruire le protocole au token près.
+
+Nous avons donc gardé ce qui était publiable et exécutable --- données \cite{calmdataset}, prompts, température, métriques --- et changé les juges. La Q1 se referme ici ; le reste du rapport porte sur la Q3, conditionnellement à ces choix.
+
+\section{Q3 --- Les résultats tiennent-ils avec des modèles récents ?}
+
+\input{tables/tab_q3}
+
+\paragraph{Réponse : en partie.}
+
+\textbf{Ce qui tient.} Les biais les plus forts de l'article se retrouvent avec des modèles de 4 à 7~milliards de paramètres. La position est encore plus marquée chez nous, avec une adhésion nette à la première case. Le sentiment pénalise les réponses émotionnelles, surtout lorsque le ton touche la réponse de référence. L'auto-valorisation est universelle, et plus violente chez DeepSeek. La verbosité, du moins chez Gemma et Qwen, confirme que des juges récents ne se laissent pas impressionner par la longueur.
+
+\textbf{Ce qui ne tient pas.} Une fois le bruit retiré, l'autorité, la distraction et la diversité n'ont plus d'effet. Le CoT n'améliore pas l'exactitude ; il la dégrade même chez DeepSeek. Le fallacy-oversight n'est pas comparable, parce que sa métrique de robustesse récompense l'aveuglement.
+
+\textbf{Ce qui tient en partie.} Le bandwagon existe, mais plus faible, et le pourcentage annoncé compte chez Qwen, contrairement à l'article. Le compassion-fade se manifeste surtout comme un effet de marque (GPT-4 vs.\ Llama). Le raffinement influence DeepSeek et Gemma bien plus que les juges de l'article, et Qwen presque pas.
+
+\subsection{Pourquoi les résultats divergent}
+
+Trois mécanismes, non exclusifs, expliquent l'écart.
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{L'échelle.} Nos juges sont dix à vingt fois plus petits que Qwen2-72B, et incomparables à GPT-4o ou Claude-3.5. Ils sont aussi plus bruités, surtout DeepSeek, dont le CR d'alignement ($0{,}68$) laisse peu de marge pour isoler un petit biais. Inversement, un modèle petit peut être \emph{plus} sensible à la position : c'est ce que nous observons.
+  \item \textbf{Le CR de référence.} L'article soustrait chaque RR d'un CR global très élevé. Nous soustrayons le CR du même biais. La première convention produit des BIS plus grands, et fait apparaître des effets que la seconde classe dans le bruit. Une partie du « non-reproduit » est donc une différence de \emph{comptabilité}, pas de phénomène.
+  \item \textbf{Une métrique sans direction.} Le RR traite tout changement de verdict comme un échec. Pour l'autorité, nos juges changent souvent \emph{vers} la réponse correcte : ils soupçonnent la fausse source. L'article lit la même baisse de RR comme une tromperie. Sans l'exactitude conditionnelle, on ne peut pas départager les deux lectures.
+\end{enumerate}
+
+S'y ajoutent les écarts de protocole du \cref{sec-deviations} (256 tokens, JSON, CR à 50\,\%, \texttt{think}). Nous ne pouvons pas quantifier leur part. Ils vont plutôt dans le sens d'une sous-estimation des raisonnements longs (sauf CoT) que d'une invention de biais.
+
+\section{Menaces à la validité}
+
+\paragraph{Validité interne.}
+Une seule exécution par condition, à température~$0{,}7$. L'intervalle de Wilson capture l'incertitude d'échantillonnage des items, pas la variance d'échantillonnage du juge. Un second run déplacerait probablement les RR de quelques points, surtout chez DeepSeek. La limite de 256 tokens tronque les explications ; nous n'avons pas mesuré l'effet de cette troncature sur le verdict, seulement sur le temps. Le schéma JSON peut, lui, \emph{aider} le juge en contraignant le format, ce qui irait plutôt vers plus de consistance que vers plus de biais.
+
+\paragraph{Validité de construit.}
+Le RR ne distingue pas un changement « dans le bon sens » d'un changement « dans le mauvais sens ». Le BIS hérite de ce problème. Le nom compassion-fade ne mesure pas la compassion fade \cite{vastfjall2014compassion}. Le fallacy-oversight, tel que métriqué par l'article, ne mesure pas la détection de fallacies. Ces écarts de construit limitent ce que l'on peut conclure, y compris lorsque nos chiffres \emph{reproduisent} ceux de l'article.
+
+\paragraph{Validité externe.}
+Trois juges locaux, une génération de modèles, deux cartes Jetson, Ollama. Rien n'autorise à généraliser à GPT-4o, ni à un juge de 70~milliards de paramètres, ni à un autre backend. Les données CALM elles-mêmes --- paires DPO bruitées, réponses factuelles générées par GPT-4-Turbo, réponse correcte toujours en A --- bornent la portée. Un effet trouvé ici peut disparaître sur MT-Bench \cite{zheng2023mtbench} ou JudgeBench \cite{tan2025judgebench} ; un effet absent ici peut y réapparaître.
+
+\paragraph{Validité de conclusion.}
+Nous n'avons pas de test statistique au-delà des intervalles de Wilson. Les libellés « oui / en partie / non » du \cref{tab-q3} sont des jugements qualitatifs, posés après lecture conjointe du RR, du BIS, de l'exactitude et des figures. Un autre lecteur, avec le même tableau, pourrait déplacer la verbosité de « en partie » à « oui », ou le bandwagon de « en partie » à « non ». Nous avons choisi le libellé le plus conservateur compatible avec les chiffres.

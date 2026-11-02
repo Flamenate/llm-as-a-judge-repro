@@ -1,0 +1,14 @@
+\chapter{Application de présentation}
+\label{chap-presentation}
+
+Une présentation de 23 diapositives, en français, accompagne ce rapport. Le fichier source est \path{presentation/presentation_fr.md}~: chaque diapositive y est découpée en trois blocs, \emph{Texte} (ce qui s'affiche), \emph{Visuels} (figure, tableau ou diagramme Mermaid \cite{mermaid}) et \emph{Discours} (ce que l'orateur dit, non affiché sur la vue public).
+
+Le répertoire \texttt{presentation/web/} contient une petite application statique qui lit ce Markdown à chaque chargement. Elle n'a pas de serveur dédié : il suffit de servir la racine du dépôt.
+
+\begin{lstlisting}
+python -m http.server 8000
+\end{lstlisting}
+
+La vue public s'ouvre à \texttt{http://localhost:8000/presentation/web/}. La touche \texttt{P} ouvre une fenêtre orateur (discours, diapositive courante, minuteur, numéro). Les deux fenêtres restent synchronisées par un \texttt{BroadcastChannel} : n'importe laquelle peut avancer ou reculer. Les bibliothèques (marked \cite{markedjs}, Mermaid \cite{mermaid}) et la police Inter sont vendored dans \texttt{presentation/web/vendor/}, de sorte qu'aucun réseau n'est requis une fois la page chargée.
+
+Raccourcis principaux : flèches et espace pour avancer ou reculer, \texttt{F} pour le plein écran, \texttt{B} pour l'écran noir, \texttt{T} pour mettre le minuteur en pause. Un clic dans le quart gauche de la diapositive recule ; le reste avance. Les figures de la présentation sont celles de \texttt{analysis/}, les mêmes que ce rapport recopie dans \texttt{report/figures/}.

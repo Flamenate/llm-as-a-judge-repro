@@ -1,0 +1,139 @@
+\documentclass[a4paper,11pt]{report}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[french]{babel}
+\usepackage{csquotes}
+\usepackage{microtype}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\emergencystretch=3em
+
+\usepackage{amsmath,amssymb}
+\usepackage{siunitx}
+\sisetup{
+  locale = FR,
+  detect-weight = true,
+  tight-spacing = true,
+}
+
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{makecell}
+
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\captionsetup{
+  font = small,
+  labelfont = sc,
+  skip = 6pt,
+}
+
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc}
+
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage[nameinlink,french]{cleveref}
+\hypersetup{
+  colorlinks = true,
+  linkcolor  = {blue!50!black},
+  citecolor  = {blue!50!black},
+  urlcolor   = {blue!60!black},
+  pdftitle   = {Justice or Prejudice? Étude de reproductibilité},
+}
+
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{fancyvrb}
+\lstset{
+  basicstyle = \ttfamily\footnotesize,
+  breaklines = true,
+  columns = fullflexible,
+  keepspaces = true,
+  showstringspaces = false,
+  frame = single,
+  framerule = 0.3pt,
+  xleftmargin = 1em,
+  xrightmargin = 1em,
+  aboveskip = 0.8em,
+  belowskip = 0.8em,
+}
+
+\usepackage[style=numeric, backend=biber, sorting=nyt, maxbibnames=8, minbibnames=3, giveninits=true, uniquename=init, defernumbers=true]{biblatex}
+\addbibresource{references.bib}
+
+\newcommand{\RR}{\mathrm{RR}}
+\newcommand{\CR}{\mathrm{CR}}
+\newcommand{\BIS}{\mathrm{BIS}}
+\newcommand{\AIR}{\mathrm{AIR}}
+\newcommand{\ErrRA}{\mathrm{Err}_{\mathrm{RA}}}
+\newcommand{\ErrSE}{\mathrm{Err}_{\mathrm{SE}}}
+
+\title{Justice or Prejudice? Quantifying Biases in LLM-as-a-Judge\\
+\large Étude de reproductibilité de Ye et al.\ (ICLR 2025)}
+\author{Haythem FRIKHA\\[0.4em]
+\small Encadrante : Dr. Liana ERMAKOVA\\
+\small [Ecole Nationale d'Ingénieurs de Brest]}
+\date{27/10/2026}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{1.5cm}
+  {\large Ecole Nationale d'Ingénieurs de Brest\par}
+  \vspace{1.8cm}
+  {\LARGE\bfseries Justice or Prejudice? Quantifying Biases in LLM-as-a-Judge\par}
+  \vspace{0.6cm}
+  {\Large Étude de reproductibilité de Ye et al.\ (ICLR 2025)\par}
+  \vspace{1.6cm}
+      Réalisé par :
+      
+        {\large Haythem FRIKHA\par}
+        {\large Zaineb SBOUI\par}
+        {\large Mariem BENABDALLAH\par}
+        {\large Ayoub NOUAYTI\par}
+  \vspace{0.5cm}
+  {\large Encadrante Académique : Dr. Liana ERMAKOVA\par}
+  \vfill
+  {\large 27/10/2026\par}
+\end{titlepage}
+
+\cleardoublepage
+\phantomsection
+\chapter*{Abstrait}
+\addcontentsline{toc}{chapter}{Abstrait}
+
+L'approche \emph{LLM-as-a-Judge} consiste à déléguer à un grand modèle de langage le rôle d'évaluateur : comparer deux réponses, ou en noter une sur une échelle. Ye et al.\ \cite{ye2025justice} proposent CALM (\emph{Comprehensive Assessment of Language Model Judge Biases}), un cadre qui quantifie douze biais de jugement par des perturbations automatiques. Nous reproduisons ce protocole sur trois juges locaux récents et légers --- Qwen3~4B \cite{qwen3technical}, DeepSeek-R1~7B \cite{deepseekr1} et Gemma~4 e4B \cite{ollamagemma4} --- servis par Ollama \cite{ollama} sur deux cartes NVIDIA Jetson Orin Nano \cite{jetsonorin}.
+
+Les biais les plus forts de l'article (position, sentiment, auto-valorisation) se retrouvent. Plusieurs effets plus faibles (autorité, distraction, diversité, gain du \emph{chain-of-thought}) disparaissent une fois le bruit du juge retiré. Le benchmark lui-même présente des limites de conception --- la réponse correcte est toujours en position~A --- et de nombreuses incohérences textuelles. Reproduire l'article à l'identique, avec les mêmes modèles, n'était pas possible.
+
+\textbf{Mots-clés :} LLM-as-a-Judge, biais, reproductibilité, CALM, évaluation automatique.
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+\input{chapters/01_introduction}
+\input{chapters/02_background}
+\input{chapters/03_method}
+\input{chapters/04_results}
+\input{chapters/05_discussion}
+\input{chapters/06_limitations}
+\input{chapters/07_conclusion}
+
+\printbibliography[keyword=ref,title={Références},heading=bibintoc]
+\printbibliography[keyword=web,title={Webographie},heading=bibintoc]
+
+\appendix
+\input{chapters/a_prompts}
+\input{chapters/b_commands}
+\input{chapters/c_tables}
+\input{chapters/d_presentation}
+
+\end{document}

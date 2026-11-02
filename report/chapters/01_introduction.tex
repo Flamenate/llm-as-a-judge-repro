@@ -1,0 +1,49 @@
+\chapter{Introduction}
+\label{chap-intro}
+
+Les grands modèles de langage (LLM) ne servent plus seulement à produire du texte. On leur demande aussi de \emph{juger} : choisir la meilleure de deux réponses, ou attribuer une note. Cette pratique, dite \emph{LLM-as-a-Judge} \cite{zheng2023mtbench,liu2023geval}, alimente aujourd'hui des classements publics, des récompenses d'apprentissage par renforcement, et une part croissante de l'évaluation automatique. Elle promet d'être moins coûteuse et plus reproductible qu'un panel humain. Elle hérite aussi, et c'est le sujet de ce rapport, des biais du modèle qui juge.
+
+Un juge qui favorise la première réponse présentée, la plus longue, ou celle qui porte un nom prestigieux, ne mesure plus la qualité : il la déforme. Les travaux sur MT-Bench \cite{zheng2023mtbench}, CoBBLEr \cite{koo2023cobbler} ou les évaluateurs « injustes » \cite{wang2024fair} l'ont montré pour quelques biais isolés. L'article de Ye et al.\ \cite{ye2025justice}, publié à ICLR~2025 sous le titre \emph{Justice or Prejudice? Quantifying Biases in LLM-as-a-Judge}, propose un cadre unique, CALM, pour quantifier \emph{douze} biais avec le même protocole : on juge une paire, on la perturbe (citation inventée, ton émotionnel, inversion d'ordre\ldots), on rejuge. L'article évalue six juges, dont GPT-4o, Claude-3.5 et Qwen2-72B, à température~$0{,}7$.
+
+Ce rapport est une étude de reproductibilité de ce travail. Nous n'avons pas cherché à « battre » l'article, ni à proposer un nouveau benchmark. Nous avons cherché à répondre à quatre questions, formulées avec notre encadrant.
+
+\section{Pourquoi une étude de reproductibilité}
+
+Un article de benchmarking n'est utile que si un tiers peut, à partir du texte et des artefacts publiés, retrouver les mêmes conclusions --- ou comprendre précisément pourquoi il ne les retrouve pas. CALM publie un dépôt de données \cite{calmdataset} et un site \cite{calmwebsite}, mais pas les verdicts bruts. Plusieurs modèles de l'article ont été retirés des catalogues commerciaux. Le coût d'une reproduction à l'identique, environ vingt-et-un millions de tokens par juge, dépasse le budget d'un projet étudiant. Ces contraintes ne rendent pas l'étude moins pertinente : elles en précisent l'objet. Nous reproduisons le \emph{protocole} (prompts officiels, données, température, métriques) avec d'autres juges, plus petits, plus récents, exécutés localement.
+
+Une reproduction n'est pas un audit hostile. Lorsque nos chiffres s'écartent de ceux de l'article, trois explications coexistent, et nous les distinguons : (i)~la taille et la génération des modèles ; (ii)~les écarts de protocole que nous assumons (limite de tokens, sortie JSON, CR sur la moitié des items) ; (iii)~les limites du benchmark lui-même, qui peuvent fausser aussi bien nos mesures que celles de l'article.
+
+\section{Quatre questions de recherche}
+
+\begin{description}[style=nextline,leftmargin=1.6em]
+  \item[Q1 --- Mêmes modèles, mêmes données.]
+    Peut-on reproduire les résultats de Ye et al.\ à l'identique, avec les mêmes juges et les mêmes données ?
+  \item[Q2 --- Stabilité.]
+    Un juge redonne-t-il le même verdict sur la même paire, assez souvent pour qu'un changement de verdict puisse être attribué à un biais plutôt qu'au bruit ?
+  \item[Q3 --- Modèles récents.]
+    Les conclusions de l'article tiennent-elles avec des modèles plus récents, open source et d'une taille d'une autre échelle (4 à 7~milliards de paramètres) ?
+  \item[Q4 --- Qualité du benchmark.]
+    Les données et le protocole illustrent-ils vraiment chaque biais ? Leur construction n'introduit-elle pas ses propres biais ?
+\end{description}
+
+Ces questions structurent le rapport. La Q1 se tranche dès le chapitre de méthode : une reproduction à l'identique est impossible. La Q2 ouvre le chapitre de résultats. La Q3 occupe le cœur de l'analyse, biais par biais. La Q4 fait l'objet d'un chapitre séparé.
+
+\section{Contributions}
+
+Ce travail apporte quatre éléments.
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item Une réimplémentation fidèle du protocole CALM (\texttt{judge.py}, \texttt{analyze.py}), avec les prompts du dépôt officiel, la sauvegarde de tous les verdicts bruts en JSON, et la reprise automatique après interruption.
+  \item Une campagne d'environ 140~heures de calcul sur deux cartes Jetson Orin Nano, pour trois juges et (presque) les douze biais, soit de l'ordre de 21~millions de tokens de sortie par modèle évités par l'exécution locale.
+  \item Une comparaison systématique avec les tableaux~4, 5 et~7 de l'article : taux de robustesse, BIS, AIR, erreurs de raffinement et d'auto-valorisation, avec intervalles de Wilson \cite{wilson1927}.
+  \item Un examen critique du benchmark : limites de conception, incohérences du texte, et propositions pour un protocole corrigé.
+\end{enumerate}
+
+Nous ne prétendons pas que nos trois juges « valident » ou « infirment » CALM en général. Nous montrons ce qui survit, et ce qui ne survit pas, lorsqu'on change d'échelle de modèle tout en gardant les mêmes données et les mêmes prompts.
+
+\section{Plan du rapport}
+
+Le \cref{chap-background} présente l'état de l'art sur les biais des juges LLM, le cadre CALM (douze biais, données, métriques) et les résultats principaux de l'article. Le \cref{chap-method} décrit notre implémentation, les modèles, l'infrastructure, les durées, et les écarts au protocole. Le \cref{chap-results} donne les résultats : stabilité, vue d'ensemble, puis un examen détaillé de chaque biais. Le \cref{chap-discussion} répond aux questions Q1 et Q3 et discute les menaces à la validité. Le \cref{chap-limitations} traite de la Q4. Le \cref{chap-conclusion} conclut et ouvre des perspectives.
+
+\paragraph{Vocabulaire.}
+Sur les \emph{préférences humaines}, nous parlons de \textbf{réponse correcte} (préférée par des annotateurs) et de \textbf{fausse réponse}. Sur les \emph{questions factuelles}, les deux réponses sont justes ; nous parlons de \textbf{réponse de référence} et de \textbf{réponse dégradée} (moins claire). Ces deux couples ne sont pas interchangeables, et nous les maintenons dans tout le rapport.

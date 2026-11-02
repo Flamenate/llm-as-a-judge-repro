@@ -1,0 +1,154 @@
+\chapter{Contexte et article étudié}
+\label{chap-background}
+
+\section{LLM-as-a-Judge et biais connus}
+
+Zheng et al.\ \cite{zheng2023mtbench} ont popularisé l'usage d'un LLM comme substitut d'un annotateur humain, d'abord pour comparer des assistants conversationnels (MT-Bench, Chatbot Arena). Liu et al.\ \cite{liu2023geval} ont montré qu'un juge GPT-4, guidé par une chaîne de pensée, pouvait s'aligner sur des évaluations humaines de génération de texte. Ces succès ont fait du juge LLM un outil d'infrastructure : on l'utilise pour classer des modèles, pour filtrer des données, et comme récompense dans l'apprentissage.
+
+Le même outil s'est révélé sensible à des indices qui ne devraient pas compter. Wang et al.\ \cite{wang2024fair} montrent que l'ordre de présentation des réponses change le verdict. Zheng et al.\ \cite{zheng2023mtbench} documentent un biais de position et un biais de verbosité. Koo et al.\ \cite{koo2023cobbler} (CoBBLEr) élargissent le diagnostic aux biais cognitifs (ancrage, salience, bandwagon). Chen et al.\ \cite{chen2024humans} comparent juges humains et juges LLM, et montrent que des citations fabriquées perturbent les seconds. Panickssery et al.\ \cite{panickssery2024self} établissent que les juges reconnaissent et favorisent leurs propres générations. Xu et al.\ \cite{xu2024pride} observent un phénomène analogue dans l'auto-raffinement.
+
+Ces travaux posent le problème biais par biais, souvent avec des protocoles et des données différents. CALM \cite{ye2025justice} vise au contraire un cadre unique : mêmes familles de données, mêmes métriques, douze perturbations construites par un LLM selon des principes proches de l'IA constitutionnelle \cite{bai2022constitutional}.
+
+\section{Le cadre CALM}
+
+CALM (\emph{Comprehensive Assessment of Language Model Judge Biases}) formalise le jugement comme un triplet $P = (I, Q, R)$ : une instruction système $I$, une question $Q$, et une ou deux réponses $R$ à évaluer. Une perturbation $g$ produit $\hat{P}$, en modifiant soit la réponse, soit l'instruction. Le juge produit
+\[
+  y = \mathrm{LLM}(P), \qquad \hat{y} = \mathrm{LLM}(\hat{P}).
+\]
+L'issue souhaitable est $y = \hat{y}$ : le verdict ne dépend pas de l'indice injecté.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      font=\small,
+      box/.style={draw, rounded corners=2pt, align=center, inner sep=6pt, fill=blue!6},
+      arr/.style={-{Stealth}, thick},
+    ]
+    \node[box] (p) {Paire $(Q, A, B)$};
+    \node[box, right=1.6cm of p] (y) {Verdict initial $y$};
+    \node[box, below=1.1cm of y] (yr) {Verdict répété $y_{\mathrm{rand}}$\\(sans changement)};
+    \node[box, below=1.1cm of p] (g) {Perturbation $g$\\citation, longueur, émotion\ldots};
+    \node[box, below=1.1cm of g] (yh) {Verdict perturbé $\hat{y}$};
+    \node[box, right=1.4cm of yr] (rr) {$\RR$ : $y = \hat{y}$};
+    \node[box, right=1.4cm of y] (cr) {$\CR$ : $y = y_{\mathrm{rand}}$};
+    \node[box, below=1.3cm of rr] (bis) {$\BIS = \CR - \RR$};
+    \draw[arr] (p) -- (y);
+    \draw[arr] (p) -- (g);
+    \draw[arr] (p) -- (yr);
+    \draw[arr] (g) -- (yh);
+    \draw[arr] (y) -- (cr);
+    \draw[arr] (yr) -- (cr);
+    \draw[arr] (y.south) -- ++(0,-0.35) -| (rr);
+    \draw[arr] (yh) -- (rr);
+    \draw[arr] (rr) -- (bis);
+    \draw[arr] (cr) |- (bis);
+  \end{tikzpicture}
+  \caption{Protocole CALM. On juge une paire, on la rejuge à l'identique (consistance) et après perturbation (robustesse). L'écart isole l'effet propre du biais.}
+  \label{fig-calm-protocol}
+\end{figure}
+
+Deux familles de tâches coexistent. La \emph{comparaison par paires} demande un verdict $A$ ou $B$ (parfois un match nul). La \emph{notation} attribue un score entier de 1 à 10. Les biais de raffinement et d'auto-valorisation relèvent de la seconde.
+
+\subsection{Les douze biais}
+
+Le \cref{tab-bias-defs} reprend les définitions de la table~1 de l'article \cite{ye2025justice}, avec un exemple dans le style du dépôt GitHub \cite{calmdataset}. Les intitulés anglais de l'article sont conservés entre parenthèses lorsqu'ils sont devenus des noms de fichiers dans notre code.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Les douze biais de CALM, d'après Ye et al.\ \cite{ye2025justice}.}
+  \label{tab-bias-defs}
+  \begin{tabularx}{\textwidth}{l>{\raggedright\arraybackslash}p{3.6cm}X}
+    \toprule
+    \textbf{Biais} & \textbf{Définition} & \textbf{Exemple} \\
+    \midrule
+    Position & Favoriser une réponse à cause de sa place. & On inverse $A{:}\ 3{,}11>3{,}8$ et $B{:}\ 3{,}8>3{,}11$. \\
+    Verbosité & Préférer la réponse la plus longue. & « Comme nous le savons tous, en mathématiques, $3{,}11$ est plus grand que $3{,}8$. » \\
+    Compassion-fade & Réagir au nom du modèle plutôt qu'au contenu. & Assistant A/B devient GPT-4 / Llama-7B. \\
+    Bandwagon & Suivre l'avis supposé de la majorité. & « 90\,\% des gens pensent que B est meilleur. » \\
+    Distraction & Se laisser influencer par un détail hors sujet. & « L'assistant A aime les pâtes à la sauce tomate. » \\
+    Fallacy-oversight & Ignorer un raisonnement absurde si la conclusion est juste. & Réécriture « complètement chaotique » de la réponse de référence. \\
+    Autorité & Faire confiance à une source, même fausse. & $(Patel, R. (2018).\ \emph{Advanced Algorithms}\ldots,\ p.\ 143)$. \\
+    Sentiment & Réagir au ton émotionnel. & « Malheureusement, $3{,}11>3{,}8$, cela révèle impitoyablement\ldots » \\
+    Diversité & Réagir à l'identité attribuée à l'auteur. & « L'assistant A est homosexuel. » \\
+    CoT & Changer de verdict lorsqu'on demande de raisonner d'abord. & « Résolvez d'abord la question, étape par étape, puis comparez. » \\
+    Self-enhancement & Noter plus généreusement ses propres réponses. & Le juge rédige, se note, puis note les autres. \\
+    Raffinement & Noter mieux une réponse qu'on dit améliorée. & Originale 6/10, raffinée 7/10, raffinée avec historique 8/10. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Le nom \emph{compassion fade} est emprunté à la psychologie \cite{vastfjall2014compassion}, où il désigne la baisse de compassion lorsque le nombre de victimes augmente. Dans CALM, il s'agit d'un effet de \emph{marque} : le juge réagit au nom GPT-4 ou Llama. Nous y revenons au \cref{chap-limitations}.
+
+\subsection{Données et modèles de l'article}
+
+CALM s'appuie sur trois familles \cite{ye2025justice,calmdataset}.
+
+\begin{description}[style=nextline,leftmargin=1.6em]
+  \item[Questions factuelles.]
+    Problèmes de mathématiques et de sciences issus de GSM8K \cite{cobbe2021gsm8k}, MATH \cite{hendrycks2021math} et ScienceQA \cite{lu2022scienceqa}. GPT-4-Turbo produit deux réponses \emph{justes}, l'une de référence et l'autre dégradée (moins claire). Ces paires servent à la verbosité, au sentiment et au fallacy-oversight : on peut modifier le style sans changer la correction factuelle.
+  \item[Préférences humaines (\emph{alignment}).]
+    Paires issues de jeux DPO \cite{rafailov2023dpo} (OpenOrca, emerton\_dpo, etc.) : une réponse correcte, préférée par des humains, et une fausse réponse. Elles servent à la position, au bandwagon, à l'autorité, à la distraction, à la diversité, au compassion-fade et au CoT.
+  \item[Raffinement.]
+    Questions ouvertes (CommonsenseQA \cite{talmor2019commonsenseqa}, TruthfulQA \cite{lin2022truthfulqa}, etc.), avec une réponse originale et une version polie.
+\end{description}
+
+Les tailles annoncées varient selon les tableaux de l'article (souvent 500 items pour le factuel, 439 pour l'alignement, 150 pour le raffinement et le self-enhancement). Les fichiers publiés ne correspondent pas toujours à ces effectifs ; nous y reviendrons au \cref{chap-limitations}.
+
+Les six juges de l'article sont ChatGPT, GPT-4-Turbo, GPT-4o, GLM-4, Claude-3.5-Sonnet et Qwen2-72B-Instruct, à température~$0{,}7$. Quatre autres modèles (Mixtral-8x22B, Llama~3 70B et 8B, Mistral-7B) ne servent qu'à générer des réponses, pour limiter l'auto-valorisation.
+
+\subsection{Métriques}
+\label{sec-metrics}
+
+Soit $\mathcal{D}$ l'ensemble des items dont le verdict de référence $y$ a pu être analysé. Pour un biais de comparaison par paires, le \emph{taux de robustesse} et le \emph{taux de consistance} (nous disons aussi \emph{cohérence}) s'écrivent
+\begin{align}
+  \RR &= \frac{1}{|\mathcal{D}|} \sum_{i \in \mathcal{D}} \mathbf{1}\bigl(y_i = \hat{y}_i\bigr),
+  \label{eq-rr} \\
+  \CR &= \frac{1}{|\mathcal{D}_{\mathrm{rand}}|} \sum_{i \in \mathcal{D}_{\mathrm{rand}}} \mathbf{1}\bigl(y_i = y_i^{\mathrm{rand}}\bigr).
+  \label{eq-cr}
+\end{align}
+$\hat{y}$ est le verdict après perturbation ; $y^{\mathrm{rand}}$ est le verdict d'une seconde exécution \emph{sans} perturbation. Un RR élevé signifie que le juge ignore l'indice injecté. Un CR élevé signifie qu'il est stable.
+
+L'article isole l'effet propre du biais par le \emph{Bias Impact Score}
+\begin{equation}
+  \BIS = \CR - \RR.
+  \label{eq-bis}
+\end{equation}
+Un BIS positif indique que le juge change plus souvent d'avis après perturbation qu'entre deux exécutions identiques. L'article calcule un seul CR par famille de données (factuel vs.\ préférences) ; nous calculons un CR par biais (\cref{sec-bis-method}).
+
+Pour le \emph{chain-of-thought}, la métrique n'est pas le RR mais le gain relatif d'exactitude. Si $R_i$ est la vérité terrain (la réponse correcte) :
+\begin{align}
+  \mathrm{Acc}_{\mathrm{ori}} &= \frac{1}{|\mathcal{D}|} \sum_i \mathbf{1}(y_i = R_i),
+  \label{eq-accori} \\
+  \mathrm{Acc}_{\mathrm{CoT}} &= \frac{1}{|\mathcal{D}|} \sum_i \mathbf{1}(\hat{y}_i = R_i),
+  \label{eq-acccot} \\
+  \AIR &= \frac{\mathrm{Acc}_{\mathrm{CoT}} - \mathrm{Acc}_{\mathrm{ori}}}{\mathrm{Acc}_{\mathrm{ori}}} \times 100\,\%.
+  \label{eq-air}
+\end{align}
+Un AIR positif est présenté comme un bénéfice du raisonnement explicite ; un AIR négatif comme un biais.
+
+Pour la notation, l'article définit deux taux d'erreur :
+\begin{align}
+  \ErrSE &= \frac{\bar{s}_{\mathrm{self}}}{\bar{s}_{\mathrm{other}}} - 1,
+  \label{eq-errse} \\
+  \ErrRA &= \frac{\bar{s}'_{\mathrm{ref}}}{\bar{s}_{\mathrm{ref}}} - 1.
+  \label{eq-errra}
+\end{align}
+$\bar{s}_{\mathrm{self}}$ est la note que le juge s'attribue ; $\bar{s}_{\mathrm{other}}$ est la note moyenne que les \emph{autres} juges donnent à cette même réponse. $\bar{s}_{\mathrm{ref}}$ est la note de la réponse raffinée seule ; $\bar{s}'_{\mathrm{ref}}$ est la note de cette même réponse présentée avec l'historique de raffinement. Une erreur positive traduit une préférence pour soi, ou pour la version qu'on dit améliorée.
+
+\section{Résultats principaux de l'article}
+
+Le tableau~4 de Ye et al.\ \cite{ye2025justice} donne les RR (et l'AIR pour le CoT) des six juges. Les faits saillants, tels que les auteurs les formulent, sont les suivants.
+
+\begin{itemize}[leftmargin=1.6em]
+  \item Aucun juge n'est robuste partout. Claude-3.5 est souvent le plus résistant, mais GPT-4-Turbo, par exemple, est très sensible au sentiment (RR~$0{,}65$).
+  \item Les biais sont plus marqués sur les préférences humaines que sur les questions factuelles : l'écart de qualité entre les deux réponses y est plus faible, et un indice superficiel suffit à faire basculer le verdict.
+  \item Le CR factuel est quasi parfait ($0{,}97$ à $1{,}00$) ; le CR d'alignement est déjà plus bas ($0{,}86$ à $0{,}93$). Autrement dit, même sans perturbation, un juge change d'avis une fois sur dix environ sur les préférences.
+  \item Le CoT \emph{améliore toujours} l'exactitude (AIR de $+0{,}8\,\%$ à $+7\,\%$, tableau~4 / table~8).
+  \item Le self-enhancement est net pour cinq juges sur six (tableau~5) : $\ErrSE$ de $+3{,}6\,\%$ à $+9{,}4\,\%$, sauf ChatGPT qui se \emph{sous}-évalue ($-16{,}6\,\%$).
+  \item Le raffinement a un effet faible ($\ErrRA$ entre $-5{,}5\,\%$ et $+2{,}2\,\%$).
+\end{itemize}
+
+Le tableau~7 traduit ces RR en BIS, avec un CR unique par famille. C'est ce BIS que nos figures comparent aux nôtres. Le tableau~8 détaille les conditions (pourcentages de bandwagon, types de citation, tons, identités). Nous y ferons référence biais par biais au \cref{chap-results}.
+
+Ces résultats fondent les recommandations de l'article : ne pas faire juger un modèle par lui-même ; mélanger l'ordre des réponses ; se méfier des contenus émotionnels et des fausses sources. La suite de ce rapport demande si ces recommandations survivent à un changement de juges.

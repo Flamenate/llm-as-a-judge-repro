@@ -4,9 +4,11 @@ Usage:
     python judge.py qwen3 refinement
     python judge.py qwen3 authority --limit 10
     python judge.py qwen3 refinement --host 127.0.0.1:11434
+    python judge.py qwen3 refinement --no-think
 
 Prompt text is taken from promptTemplate.py. Judge calls append a brevity
-instruction and cap generation at NUM_PREDICT tokens. Structured output is
+instruction and cap generation at NUM_PREDICT tokens. Chain-of-thought uses a
+higher cap and skips Ollama's hidden thinking pass. Structured output is
 requested with Ollama's response schema, which is separate from the prompt
 string.
 
@@ -20,9 +22,12 @@ can compute the Consistency Rate. Every call is a fresh, stateless generate
 request, so the repeat is an independent judgment at the same temperature.
 With --temperature 0 the repeat is deterministic and CR is trivially 1.
 
-Self-enhancement only scores other models' saved answers for the same item.
-It does not generate or score this model's own response. Those cross-scores
-are y_other in ErrorRate_SE. Completed calls are skipped.
+Self-enhancement uses the first 150 alignment items unless --limit is set.
+The model answers each question, scores that answer, and scores other models'
+saved answers. The prompt does not name the author. analyze.py computes
+ErrorRate_SE from the self-score and the other models' scores of that same
+answer. Another model's answer can be scored only after it has been saved, so
+run each model once and then run them again. Completed calls are skipped.
 """
 
 import argparse
@@ -49,6 +54,7 @@ from promptTemplate import (
 
 OLLAMA_HOST = "10.238.183.225:11434"
 NUM_PREDICT = 256
+COT_NUM_PREDICT = 1024
 BRIEF_INSTRUCTION = (
     "Keep the explanation to one or two sentences. "
     "Do not restate the question or the answers."
@@ -104,6 +110,7 @@ SENTIMENT_TONES = ("cheerful", "sad", "angry", "fear")
 
 CR_FRACTION = 0.5
 CR_SEED = 2024
+SELF_ENHANCEMENT_SAMPLES = 150
 
 
 def fetch_from_dataset(dataset_path):
@@ -421,6 +428,17 @@ def build_self_enhancement(item, own_answer=None, with_rand=False, other_answers
     question = item["question"]
     reference = item["answer1"]
     jobs = []
+    if own_answer:
+        jobs.append(
+            job(
+                "self",
+                self_enhancement_bias_prompt(question, reference, own_answer),
+                "score",
+                "score this model's own answer against answer1",
+                None,
+                scored_answer=own_answer,
+            )
+        )
     for other in other_answers or []:
         jobs.append(
             job(
@@ -489,7 +507,7 @@ BIASES = {
     "self-enhancement": {
         "dataset": ALIGNMENT,
         "build": build_self_enhancement,
-        "summary": "Score other models' saved answers. Does not generate or score this model's own response.",
+        "summary": "Answer the question, score that answer, and score other models' saved answers.",
     },
     "refinement": {
         "dataset": BIAS_DATASETS / "refinement_bias_standardized.json",
@@ -526,6 +544,32 @@ def output_path_for(model, bias, explicit):
     return RESULTS_DIR / f"{safe_model_name(model)}__{bias}.json"
 
 
+def saved_self_answer(results, index):
+    for record in results:
+        if record.get("index") != index or record.get("condition") != "self":
+            continue
+        text = record.get("generated_answer")
+        if isinstance(text, str) and text.strip():
+            return text
+    return None
+
+
+def generate_answer(model, question, temperature):
+    """Ask the model the dataset question, with no judge schema or token cap."""
+    response = call_model(
+        model,
+        question,
+        None,
+        temperature,
+        think=False,
+        num_predict=None,
+    )
+    text = (response.response or "").strip()
+    if not text:
+        text = (response.thinking or "").strip()
+    return text
+
+
 def load_other_self_answers(model, indices, results_dir=RESULTS_DIR):
     """Saved self-generated answers from other models, keyed by dataset index.
 
@@ -538,6 +582,8 @@ def load_other_self_answers(model, indices, results_dir=RESULTS_DIR):
     if not results_dir.is_dir():
         return by_author
     for path in sorted(results_dir.glob("*__self-enhancement.json")):
+        if path.name.startswith("old"):
+            continue
         with open(path, "r", encoding="utf-8") as file:
             payload = json.load(file)
         author = payload.get("model")
@@ -573,7 +619,7 @@ def load_payload(path, model, bias, dataset_path, temperature, cr_fraction):
         "bias": bias,
         "dataset": str(dataset_path.relative_to(ROOT)),
         "temperature": temperature,
-        "num_predict": NUM_PREDICT,
+        "num_predict": COT_NUM_PREDICT if bias == "cot" else NUM_PREDICT,
         "cr_fraction": cr_fraction,
         "cr_seed": CR_SEED,
         "results": [],
@@ -596,6 +642,8 @@ def load_payload(path, model, bias, dataset_path, temperature, cr_fraction):
             )
         existing[field] = value
     existing.setdefault("results", [])
+    if bias == "cot":
+        existing["num_predict"] = COT_NUM_PREDICT
     return existing
 
 
@@ -692,11 +740,12 @@ def log(message):
     print(f"[{format_elapsed(elapsed)}] {message}", flush=True)
 
 
-def call_model(model, prompt, schema, temperature):
+def call_model(model, prompt, schema, temperature, think=True, num_predict=NUM_PREDICT):
     options = {"temperature": temperature}
     if schema is not None:
         prompt = f"{prompt.rstrip()}\n\n{BRIEF_INSTRUCTION}"
-        options["num_predict"] = NUM_PREDICT
+        if num_predict is not None:
+            options["num_predict"] = num_predict
     last_error = None
     for attempt in range(3):
         try:
@@ -704,7 +753,7 @@ def call_model(model, prompt, schema, temperature):
                 model=model,
                 prompt=prompt,
                 format=schema,
-                think=True,
+                think=think,
                 options=options,
             )
         except Exception as exc:
@@ -738,12 +787,14 @@ def commit(payload, path, record):
     save_payload(path, payload)
 
 
-def run(model, bias, limit, output, temperature, host, cr_fraction):
+def run(model, bias, limit, output, temperature, host, cr_fraction, think=True):
     global _run_started, client
     _run_started = time.perf_counter()
     client = ollama.Client(host=host)
     spec = BIASES[bias]
     dataset = fetch_from_dataset(spec["dataset"])
+    if bias == "self-enhancement" and limit is None:
+        limit = SELF_ENHANCEMENT_SAMPLES
     if limit is not None:
         dataset_view = list(enumerate(dataset[:limit]))
     else:
@@ -785,8 +836,11 @@ def run(model, bias, limit, output, temperature, host, cr_fraction):
 
     log(f"Ollama host: {host}")
     if bias == "self-enhancement":
+        self_done = sum(1 for index, _ in dataset_view if (index, "self") in done)
         log(
-            f"{bias}: {cross_total} scores of other models' saved answers "
+            f"{bias}: first {len(dataset_view)} alignment items; "
+            f"generate and self-score ({self_done} already scored); "
+            f"{cross_total} scores of other models' answers "
             f"({cross_done} already saved)"
         )
     else:
@@ -815,6 +869,7 @@ def run(model, bias, limit, output, temperature, host, cr_fraction):
             total_items,
             cr_items,
             other_by_index,
+            think,
         )
     except KeyboardInterrupt:
         log(
@@ -838,16 +893,58 @@ def _judge_dataset(
     total_items,
     cr_items,
     other_by_index,
+    think=True,
 ):
     for index, item in dataset_view:
         try:
             build_kwargs = {"with_rand": index in cr_items}
             if bias == "self-enhancement":
-                others = other_by_index.get(index, [])
-                if not others:
-                    continue
-                build_kwargs["other_answers"] = others
-            pending_jobs = spec["build"](item, own_answer=None, **build_kwargs)
+                own_answer = saved_self_answer(payload["results"], index)
+                if own_answer is None and (index, "self") not in done:
+                    started = time.perf_counter()
+                    try:
+                        own_answer = generate_answer(
+                            model, item["question"], temperature
+                        )
+                    except Exception as exc:
+                        own_answer = None
+                        log(
+                            f"[{index + 1}/{total_items}] self: "
+                            f"could not generate an answer: {exc}"
+                        )
+                    else:
+                        took = time.perf_counter() - started
+                        if own_answer:
+                            commit(
+                                payload,
+                                path,
+                                {
+                                    "index": index,
+                                    "condition": "self",
+                                    "detail": "score this model's own answer against answer1",
+                                    "data_resource": item.get("data_resource"),
+                                    "question": item["question"],
+                                    "kind": "score",
+                                    "unbiased_verdict": None,
+                                    "output": None,
+                                    "raw_response": None,
+                                    "thinking": None,
+                                    "error": None,
+                                    "generated_answer": own_answer,
+                                },
+                            )
+                            log(
+                                f"[{index + 1}/{total_items}] self: "
+                                f"generated answer ({took:.1f}s)"
+                            )
+                        else:
+                            log(
+                                f"[{index + 1}/{total_items}] self: "
+                                "model returned an empty answer"
+                            )
+                build_kwargs["own_answer"] = own_answer
+                build_kwargs["other_answers"] = other_by_index.get(index, [])
+            pending_jobs = spec["build"](item, **build_kwargs)
         except KeyError as exc:
             missing = exc.args[0] if exc.args else exc
             log(f"[{index + 1}/{total_items}] skipped item: missing {missing}")
@@ -881,6 +978,8 @@ def _judge_dataset(
                     pending["prompt"],
                     SCHEMAS[pending["kind"]],
                     temperature,
+                    False if bias in {"self-enhancement"} else think,
+                    num_predict=COT_NUM_PREDICT if bias == "cot" else NUM_PREDICT,
                 )
                 raw = response.response or ""
                 thinking = response.thinking or ""
@@ -937,6 +1036,11 @@ def parse_args():
         help=f"Ollama host (default: {OLLAMA_HOST})",
     )
     parser.add_argument(
+        "--no-think",
+        action="store_true",
+        help="Disable Ollama thinking (think=False). Thinking is on by default.",
+    )
+    parser.add_argument(
         "--cr-fraction",
         type=float,
         default=CR_FRACTION,
@@ -964,4 +1068,5 @@ if __name__ == "__main__":
         arguments.temperature,
         arguments.host,
         arguments.cr_fraction,
+        think=not arguments.no_think,
     )

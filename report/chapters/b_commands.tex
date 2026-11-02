@@ -1,0 +1,58 @@
+\chapter{Commandes de reproduction}
+\label{chap-commands}
+
+Les commandes ci-dessous suffisent à relancer l'étude, sous réserve des modèles Ollama, du dépôt de données et des deux cartes (ou d'un hôte local).
+
+\section{Préparation}
+
+\begin{lstlisting}
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+git clone https://github.com/Y0oMu/LLM-Judge-Bias-Dataset
+\end{lstlisting}
+
+Le clone doit se trouver dans \texttt{LLM-Judge-Bias-Dataset/}, à côté de \texttt{judge.py}. Les modèles Ollama utilisés sont \texttt{qwen3:4b}, \texttt{deepseek-r1:7b} et \texttt{gemma4:e4b}.
+
+\section{Lancer un biais}
+
+\begin{lstlisting}
+python judge.py qwen3:4b position --host <ip>:11434
+python judge.py deepseek-r1:7b bandwagon --host <ip>:11434
+python judge.py gemma4:e4b sentiment --host <ip>:11434
+\end{lstlisting}
+
+Les biais reconnus sont : \texttt{position}, \texttt{verbosity}, \texttt{compassion}, \texttt{bandwagon}, \texttt{distraction}, \texttt{fallacy}, \texttt{authority}, \texttt{sentiment}, \texttt{diversity}, \texttt{cot}, \texttt{self-enhancement}, \texttt{refinement}.
+
+Options utiles :
+
+\begin{itemize}[leftmargin=1.6em]
+  \item \texttt{--temperature 0.7} (défaut, celui de l'article) ;
+  \item \texttt{--limit N} pour n'évaluer que les $N$ premiers items ;
+  \item \texttt{--no-think} pour désactiver le raisonnement interne (recommandé hors CoT, et hors DeepSeek-R1) ;
+  \item \texttt{--cr-fraction 0.5} (défaut) pour la fraction d'items répétée ;
+  \item \texttt{--output chemin.json} pour choisir le fichier de sortie.
+\end{itemize}
+
+Les résultats s'écrivent dans \texttt{results/<modele>\_\_<biais>.json}. Relancer la même commande reprend après une interruption.
+
+Pour le self-enhancement, lancer une première passe de génération et d'auto-notation sur les trois juges, puis une seconde passe pour la notation croisée : un juge ne peut noter un autre que lorsque la réponse de celui-ci est déjà sauvegardée.
+
+\section{Analyser}
+
+\begin{lstlisting}
+python analyze.py
+python analyze.py --models qwen3:4b --biases position authority
+\end{lstlisting}
+
+Les CSV et les figures PNG sont écrits dans \texttt{analysis/}.
+
+\section{Compiler ce rapport}
+
+\begin{lstlisting}
+cd report
+python generate_assets.py
+latexmk -pdf main.tex
+\end{lstlisting}
+
+\texttt{generate\_assets.py} recopie les figures et régénère les tableaux à virgule décimale française. \texttt{latexmk} enchaîne pdflatex et biber.

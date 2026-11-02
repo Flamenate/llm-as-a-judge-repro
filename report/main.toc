@@ -1,0 +1,93 @@
+\babel@toc {french}{}\relax 
+\contentsline {chapter}{Résumé}{1}{chapter*.2}%
+\contentsline {chapter}{\numberline {1}Introduction}{6}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Pourquoi une étude de reproductibilité}{6}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Quatre questions de recherche}{6}{section.1.2}%
+\contentsline {section}{\numberline {1.3}Contributions}{7}{section.1.3}%
+\contentsline {section}{\numberline {1.4}Plan du rapport}{7}{section.1.4}%
+\contentsline {paragraph}{Vocabulaire.}{7}{section*.6}%
+\contentsline {chapter}{\numberline {2}Contexte et article étudié}{8}{chapter.2}%
+\contentsline {section}{\numberline {2.1}LLM-as-a-Judge et biais connus}{8}{section.2.1}%
+\contentsline {section}{\numberline {2.2}Le cadre CALM}{8}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Les douze biais}{8}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}Données et modèles de l'article}{10}{subsection.2.2.2}%
+\contentsline {subsection}{\numberline {2.2.3}Métriques}{10}{subsection.2.2.3}%
+\contentsline {section}{\numberline {2.3}Résultats principaux de l'article}{11}{section.2.3}%
+\contentsline {chapter}{\numberline {3}Méthode de reproduction}{12}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Implémentation}{12}{section.3.1}%
+\contentsline {paragraph}{\texttt {judge.py}.}{12}{section*.9}%
+\contentsline {paragraph}{\texttt {analyze.py}.}{12}{section*.10}%
+\contentsline {paragraph}{Bandwagon et diversité.}{12}{section*.11}%
+\contentsline {section}{\numberline {3.2}Modèles juges}{12}{section.3.2}%
+\contentsline {section}{\numberline {3.3}Infrastructure}{13}{section.3.3}%
+\contentsline {section}{\numberline {3.4}Difficultés pratiques}{13}{section.3.4}%
+\contentsline {section}{\numberline {3.5}Écarts au protocole}{13}{section.3.5}%
+\contentsline {section}{\numberline {3.6}BIS par biais et incertitude}{15}{section.3.6}%
+\contentsline {chapter}{\numberline {4}Résultats}{16}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Stabilité des jugements (Q2)}{16}{section.4.1}%
+\contentsline {paragraph}{Réponse à la Q2.}{16}{section*.18}%
+\contentsline {section}{\numberline {4.2}Vue d'ensemble du taux de robustesse}{16}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Ce qui résiste au bruit : le BIS}{18}{section.4.3}%
+\contentsline {section}{\numberline {4.4}Biais de position}{18}{section.4.4}%
+\contentsline {section}{\numberline {4.5}Biais de sentiment}{20}{section.4.5}%
+\contentsline {section}{\numberline {4.6}Biais bandwagon}{22}{section.4.6}%
+\contentsline {section}{\numberline {4.7}Biais d'autorité}{22}{section.4.7}%
+\contentsline {section}{\numberline {4.8}Biais de distraction}{23}{section.4.8}%
+\contentsline {section}{\numberline {4.9}Biais de verbosité}{24}{section.4.9}%
+\contentsline {section}{\numberline {4.10}Biais compassion-fade}{24}{section.4.10}%
+\contentsline {section}{\numberline {4.11}Biais de diversité}{24}{section.4.11}%
+\contentsline {section}{\numberline {4.12}Biais de chaîne de pensée (CoT)}{24}{section.4.12}%
+\contentsline {section}{\numberline {4.13}Biais fallacy-oversight}{26}{section.4.13}%
+\contentsline {paragraph}{Exemple réel.}{26}{section*.32}%
+\contentsline {section}{\numberline {4.14}Biais de raffinement}{27}{section.4.14}%
+\contentsline {section}{\numberline {4.15}Biais de self-enhancement}{27}{section.4.15}%
+\contentsline {chapter}{\numberline {5}Discussion}{29}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Q1 --- Peut-on reproduire l'article à l'identique ?}{29}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Q3 --- Les résultats tiennent-ils avec des modèles récents ?}{29}{section.5.2}%
+\contentsline {paragraph}{Réponse : en partie.}{29}{section*.37}%
+\contentsline {subsection}{\numberline {5.2.1}Pourquoi les résultats divergent}{30}{subsection.5.2.1}%
+\contentsline {section}{\numberline {5.3}Menaces à la validité}{30}{section.5.3}%
+\contentsline {paragraph}{Validité interne.}{30}{section*.38}%
+\contentsline {paragraph}{Validité de construit.}{30}{section*.39}%
+\contentsline {paragraph}{Validité externe.}{30}{section*.40}%
+\contentsline {paragraph}{Validité de conclusion.}{31}{section*.41}%
+\contentsline {chapter}{\numberline {6}Limites du benchmark (Q4)}{32}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Limites de conception}{32}{section.6.1}%
+\contentsline {paragraph}{La réponse correcte est toujours en position A.}{32}{section*.42}%
+\contentsline {paragraph}{Perturbations à sens unique.}{32}{section*.43}%
+\contentsline {paragraph}{Le compassion-fade est mal nommé.}{32}{section*.44}%
+\contentsline {paragraph}{Le prompt demande déjà d'éviter les biais testés.}{32}{section*.45}%
+\contentsline {paragraph}{Vérité terrain fragile.}{33}{section*.46}%
+\contentsline {paragraph}{Une seule exécution, une température « pour la reproductibilité ».}{33}{section*.47}%
+\contentsline {section}{\numberline {6.2}Incohérences de l'article}{33}{section.6.2}%
+\contentsline {subsection}{\numberline {6.2.1}Données}{33}{subsection.6.2.1}%
+\contentsline {subsection}{\numberline {6.2.2}Prompts}{33}{subsection.6.2.2}%
+\contentsline {subsection}{\numberline {6.2.3}Métriques}{33}{subsection.6.2.3}%
+\contentsline {subsection}{\numberline {6.2.4}Rédaction}{34}{subsection.6.2.4}%
+\contentsline {section}{\numberline {6.3}Propositions pour un benchmark corrigé}{34}{section.6.3}%
+\contentsline {chapter}{\numberline {7}Conclusion et perspectives}{35}{chapter.7}%
+\contentsline {section}{\numberline {7.1}Réponses aux quatre questions}{35}{section.7.1}%
+\contentsline {section}{\numberline {7.2}Perspectives}{35}{section.7.2}%
+\contentsline {chapter}{Références}{37}{chapter*.48}%
+\contentsline {chapter}{Webographie}{39}{chapter*.49}%
+\contentsline {chapter}{\numberline {A}Gabarits de prompts}{40}{appendix.A}%
+\contentsline {section}{\numberline {A.1}Consigne de concision}{40}{section.A.1}%
+\contentsline {section}{\numberline {A.2}Comparaison par paires}{40}{section.A.2}%
+\contentsline {section}{\numberline {A.3}Bandwagon}{41}{section.A.3}%
+\contentsline {section}{\numberline {A.4}Distraction}{41}{section.A.4}%
+\contentsline {section}{\numberline {A.5}Diversité}{41}{section.A.5}%
+\contentsline {section}{\numberline {A.6}Compassion-fade}{41}{section.A.6}%
+\contentsline {section}{\numberline {A.7}Chaîne de pensée}{41}{section.A.7}%
+\contentsline {section}{\numberline {A.8}Notation (1 à 10)}{42}{section.A.8}%
+\contentsline {section}{\numberline {A.9}Notation avec historique de raffinement}{42}{section.A.9}%
+\contentsline {section}{\numberline {A.10}Self-enhancement}{42}{section.A.10}%
+\contentsline {chapter}{\numberline {B}Commandes de reproduction}{44}{appendix.B}%
+\contentsline {section}{\numberline {B.1}Préparation}{44}{section.B.1}%
+\contentsline {section}{\numberline {B.2}Lancer un biais}{44}{section.B.2}%
+\contentsline {section}{\numberline {B.3}Analyser}{45}{section.B.3}%
+\contentsline {section}{\numberline {B.4}Compiler ce rapport}{45}{section.B.4}%
+\contentsline {chapter}{\numberline {C}Tableaux complets}{46}{appendix.C}%
+\contentsline {section}{\numberline {C.1}Consistance par biais}{46}{section.C.1}%
+\contentsline {section}{\numberline {C.2}Robustesse et exactitude par condition}{46}{section.C.2}%
+\contentsline {section}{\numberline {C.3}Échecs d'analyse}{48}{section.C.3}%
+\contentsline {chapter}{\numberline {D}Application de présentation}{50}{appendix.D}%

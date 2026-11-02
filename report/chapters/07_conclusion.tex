@@ -1,0 +1,28 @@
+\chapter{Conclusion et perspectives}
+\label{chap-conclusion}
+
+\section{Réponses aux quatre questions}
+
+\begin{description}[style=nextline,leftmargin=1.6em]
+  \item[Q1 --- Mêmes modèles.]
+    Impossible. Des juges ont été retirés, le coût en tokens est prohibitif, et le texte ne suffit pas à reconstruire le protocole. Nous avons gardé les données et les prompts, et changé d'échelle de modèle.
+  \item[Q2 --- Stabilité.]
+    Bonne sur les questions factuelles (CR de $0{,}85$ à $0{,}99$). Insuffisante, seule, sur les préférences humaines : nos juges changent d'avis une fois sur cinq, DeepSeek une fois sur trois. Pour les petits effets, il faut retirer ce bruit (BIS).
+  \item[Q3 --- Modèles récents.]
+    En partie. Les biais forts --- position, sentiment, self-enhancement --- se retrouvent, parfois plus marqués. Plusieurs effets faibles --- autorité, distraction, diversité, gain du CoT --- disparaissent ou s'inversent. Le bandwagon, le compassion-fade et le raffinement tiennent avec une intensité différente.
+  \item[Q4 --- Benchmark.]
+    Des limites réelles de conception (réponse correcte toujours en A, perturbations unilatérales, métrique du fallacy, nom du compassion-fade) et de nombreuses incohérences de données, de prompts, de métriques et de rédaction. Un tiers ne peut pas reproduire l'article à partir du seul PDF.
+\end{description}
+
+Le message pratique de Ye et al.\ \cite{ye2025justice} n'est pas invalidé. Un juge LLM n'est pas un instrument neutre : il a une case favorite, il pénalise l'émotion, il se surévalue. Ce message survit à un changement de génération et à une division par dix de la taille. Ce qui ne survit pas, c'est le détail du tableau de chasse. Plusieurs biais « détectés » par un CR global très élevé rentrent dans le bruit dès que l'on compare le juge à lui-même, sur le même biais. D'autres, comme l'autorité, vont dans l'autre sens : le juge soupçonne la source au lieu de s'y soumettre. Un benchmark de biais a besoin d'une métrique signée, d'un plan d'expérience contrebalancé, et d'un texte aligné sur son dépôt.
+
+\section{Perspectives}
+
+Quatre directions nous semblent utiles, par ordre de faisabilité.
+
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{D'autres jeux de données.} MT-Bench \cite{zheng2023mtbench} fournit des jugements humains de conversations. RewardBench~\cite{lambert2024rewardbench} et JudgeBench~\cite{tan2025judgebench} ciblent les modèles de récompense et les juges. Y reporter les perturbations CALM dirait si les biais que nous retrouvons tiennent hors des paires DPO de l'article.
+  \item \textbf{Un benchmark corrigé.} Positions alternées, perturbations dans les deux sens, métrique d'exactitude pour le fallacy, gabarits identiques au PDF, verdicts bruts publiés. Les propositions du \cref{chap-limitations} n'ont pas été testées ; c'est le travail qui reste.
+  \item \textbf{Plusieurs exécutions et des tests.} Répéter chaque condition, publier un intervalle qui mélange items et graines, et ne plus justifier une température de $0{,}7$ par la reproductibilité.
+  \item \textbf{Des juges plus grands.} La Q3 resterait ouverte tant que l'on n'a pas, sur le même protocole corrigé, un juge de 70~milliards de paramètres et un juge propriétaire actuel. Nos résultats disent ce qui survit à la réduction d'échelle ; ils ne disent pas ce qui survit à son inverse.
+\end{enumerate}

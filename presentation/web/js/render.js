@@ -58,6 +58,24 @@ function buildVisual(visual) {
   return box;
 }
 
+const VERDICT_CLASSES = [
+  ["non comparable", "verdict-na"],
+  ["en partie", "verdict-partial"],
+  ["oui", "verdict-yes"],
+  ["non", "verdict-no"],
+];
+
+/* Colour table cells that open with a bold "Oui", "En partie", "Non"... */
+function markVerdicts(root) {
+  for (const cell of root.querySelectorAll("td")) {
+    const lead = cell.querySelector("strong");
+    if (!lead || cell.firstElementChild !== lead) continue;
+    const word = lead.textContent.trim().toLowerCase();
+    const match = VERDICT_CLASSES.find(([prefix]) => word === prefix);
+    if (match) cell.classList.add(match[1]);
+  }
+}
+
 export function buildSlide(slide, total) {
   const section = element("section", `slide ${layoutOf(slide)}`);
   section.dataset.number = slide.number;
@@ -93,6 +111,7 @@ export function buildSlide(slide, total) {
   footer.append(element("span", "slide-count", `${slide.number} / ${total}`));
   section.append(footer);
   applyFrenchSpacing(section);
+  markVerdicts(section);
   return section;
 }
 
